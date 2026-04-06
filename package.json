@@ -1,0 +1,10 @@
+{
+  "name": "memoryarchiver",
+  "private": true,
+  "scripts": {
+    "dev:backend": "cd backend && node --watch src/server.js",
+    "dev:frontend": "cd frontend && npx vite",
+    "build": "cd frontend && npm run build",
+    "start": "cd backend && node src/server.js"
+  }
+}
