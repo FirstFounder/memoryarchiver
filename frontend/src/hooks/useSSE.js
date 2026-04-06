@@ -1,19 +1,30 @@
 import { useEffect, useRef } from 'react';
 import { useJobStore } from '../store/jobStore.js';
+import { useSyncStore } from '../store/syncStore.js';
+import { getSyncJobs } from '../api/sync.js';
 
 const BASE_DELAY = 1_000;
 const MAX_DELAY  = 30_000;
 
 /**
- * Opens a persistent SSE connection to /api/events and pipes job update
- * events into the Zustand job store.  Reconnects automatically on error.
+ * Opens a persistent SSE connection to /api/events and routes named events
+ * into their respective Zustand stores.
+ *
+ * Named event types (set by the server):
+ *   connected  — stream is live
+ *   job        — encoding job update  → jobStore
+ *   sync       — sync job update      → syncStore
+ *                When id is null the server is signalling a new auto-queued sync;
+ *                we do a full refresh of the sync list to pick it up.
  *
  * Call once at the App root.
  */
 export function useSSE() {
-  const upsertJob = useJobStore(s => s.upsertJob);
-  const delay     = useRef(BASE_DELAY);
-  const esRef     = useRef(null);
+  const upsertJob     = useJobStore(s => s.upsertJob);
+  const upsertSyncJob = useSyncStore(s => s.upsertSyncJob);
+  const setSyncJobs   = useSyncStore(s => s.setSyncJobs);
+  const delay         = useRef(BASE_DELAY);
+  const esRef         = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -24,15 +35,24 @@ export function useSSE() {
       esRef.current = es;
 
       es.addEventListener('connected', () => {
-        delay.current = BASE_DELAY; // reset backoff on successful connection
+        delay.current = BASE_DELAY;
       });
 
-      es.onmessage = (e) => {
+      es.addEventListener('job', (e) => {
+        try { upsertJob(JSON.parse(e.data)); } catch { /* ignore */ }
+      });
+
+      es.addEventListener('sync', (e) => {
         try {
           const payload = JSON.parse(e.data);
-          upsertJob(payload);
-        } catch { /* malformed event */ }
-      };
+          if (payload.id == null) {
+            // A new file sync was auto-queued — refresh the full list
+            getSyncJobs().then(setSyncJobs).catch(() => {});
+          } else {
+            upsertSyncJob(payload);
+          }
+        } catch { /* ignore */ }
+      });
 
       es.onerror = () => {
         es.close();
@@ -43,10 +63,9 @@ export function useSSE() {
     }
 
     connect();
-
     return () => {
       cancelled = true;
       esRef.current?.close();
     };
-  }, [upsertJob]);
+  }, [upsertJob, upsertSyncJob, setSyncJobs]);
 }

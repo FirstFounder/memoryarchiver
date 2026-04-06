@@ -5,6 +5,7 @@ import { FileBrowser } from './components/FileBrowser.jsx';
 import { FileList } from './components/FileList.jsx';
 import { JobForm } from './components/JobForm.jsx';
 import { JobQueue } from './components/JobQueue.jsx';
+import { SyncQueue } from './components/SyncQueue.jsx';
 
 export default function App() {
   // Hook the SSE stream for the lifetime of the app
@@ -78,9 +79,10 @@ export default function App() {
           </section>
         </div>
 
-        {/* ── Right panel: queue ──────────────────────────────────────────── */}
-        <div className="flex-1 p-6 overflow-hidden flex flex-col">
+        {/* ── Right panel: encoding queue + sync queue ────────────────────── */}
+        <div className="flex-1 p-6 overflow-y-auto flex flex-col">
           <JobQueue />
+          <SyncQueue />
         </div>
       </main>
 

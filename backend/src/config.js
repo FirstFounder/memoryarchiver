@@ -21,6 +21,11 @@ const config = Object.freeze({
   ffmpegThreads: Number(process.env.FFMPEG_THREADS ?? 3),
   niceLevel: Number(process.env.NICE_LEVEL ?? 10),
 
+  // Sync
+  syncDestRoot:   process.env.SYNC_DEST_ROOT     ?? '/var/services/homes/noahRFA',
+  // rsync --bwlimit is in KB/s (1024-byte units). 625 ≈ 5 Mbps.
+  rsyncBwlimit:   Number(process.env.RSYNC_BWLIMIT_KBPS ?? 625),
+
   // Static frontend build output — served by Fastify
   staticRoot: path.resolve(__dirname, '../../frontend/dist'),
 });

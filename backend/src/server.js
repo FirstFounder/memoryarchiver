@@ -9,7 +9,9 @@ import submitRoutes  from './routes/submit.js';
 import jobsRoutes    from './routes/jobs.js';
 import browseRoutes  from './routes/browse.js';
 import eventsRoute   from './routes/events.js';
+import syncRoutes    from './routes/sync.js';
 import { startWorker, stopWorker } from './worker/index.js';
+import { startSyncWorker, stopSyncWorker } from './worker/sync-worker.js';
 
 const fastify = Fastify({
   logger: {
@@ -50,11 +52,13 @@ await fastify.register(submitRoutes);
 await fastify.register(jobsRoutes);
 await fastify.register(browseRoutes);
 await fastify.register(eventsRoute);
+await fastify.register(syncRoutes);
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 try {
   await fastify.listen({ port: config.port, host: '0.0.0.0' });
   startWorker();
+  startSyncWorker();
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);
@@ -64,6 +68,7 @@ try {
 const shutdown = async (signal) => {
   fastify.log.info(`Received ${signal} — shutting down.`);
   stopWorker();
+  stopSyncWorker();
   await fastify.close();
   process.exit(0);
 };
