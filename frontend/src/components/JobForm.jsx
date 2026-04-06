@@ -43,6 +43,17 @@ export function JobForm({ files, onSuccess, onClear }) {
       };
       const result = await submitJob(payload);
       setPreview(result.outputFilename);
+      // Immediately seed the store so the card renders before the first SSE event
+      upsertJob({
+        id:              result.jobId,
+        status:          'pending',
+        output_filename: result.outputFilename,
+        short_desc:      shortDesc.trim(),
+        long_desc:       longDesc.trim(),
+        output_dest:     outputDest,
+        progress:        0,
+        created_at:      Math.floor(Date.now() / 1000),
+      });
       onSuccess?.(result);
       onClear?.();
       setShortDesc('');

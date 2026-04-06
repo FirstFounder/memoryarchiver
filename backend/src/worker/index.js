@@ -48,7 +48,7 @@ async function processJob(job) {
   db.prepare(`
     UPDATE jobs SET status = 'processing', updated_at = unixepoch() WHERE id = ?
   `).run(job.id);
-  emit(job.id, { status: 'processing', progress: 0 });
+  emit(job.id, { status: 'processing', progress: 0, output_filename: job.output_filename });
 
   try {
     const files = db.prepare(`
@@ -76,7 +76,7 @@ async function processJob(job) {
       onProgress(pct) {
         db.prepare(`UPDATE jobs SET progress=?, updated_at=unixepoch() WHERE id=?`)
           .run(pct, job.id);
-        emit(job.id, { status: 'processing', progress: pct });
+        emit(job.id, { status: 'processing', progress: pct, output_filename: job.output_filename });
       },
     });
 
@@ -93,7 +93,7 @@ async function processJob(job) {
     db.prepare(`
       UPDATE jobs SET status='done', progress=1.0, updated_at=unixepoch() WHERE id=?
     `).run(job.id);
-    emit(job.id, { status: 'done', progress: 1.0, outputFilename: job.output_filename });
+    emit(job.id, { status: 'done', progress: 1.0, output_filename: job.output_filename });
 
   } catch (err) {
     console.error(`[worker] Job ${job.id} failed:`, err.message);
