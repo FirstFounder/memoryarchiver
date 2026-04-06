@@ -21,6 +21,11 @@ export async function runRsync({ src, dest, onProgress }) {
 
   const args = [
     '-av',
+    '--size-only',       // skip files whose size already matches on the destination;
+                         // avoids re-transferring the entire archive when NFS timestamps
+                         // differ from the source (the default mtime+size check would
+                         // flag every file as changed). Safe for this archive because
+                         // encoded MP4s are write-once and never modified in place.
     '--info=progress2',
     `--bwlimit=${config.rsyncBwlimit}`,
     src,
