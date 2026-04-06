@@ -32,10 +32,13 @@ export async function runRsync({ src, dest, onProgress }) {
     dest,
   ];
 
-  // Wrap in nice so rsync doesn't compete with FFmpeg if both are running
-  const proc = spawn('nice', ['-n', String(config.niceLevel), 'rsync', ...args], {
-    stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  // stdbuf -o0  forces unbuffered stdout so each \r-terminated progress line
+  // is flushed to our pipe immediately rather than arriving all at once when
+  // rsync exits (the default block-buffering behaviour when stdout is not a TTY).
+  const proc = spawn(
+    'nice', ['-n', String(config.niceLevel), 'stdbuf', '-o0', 'rsync', ...args],
+    { stdio: ['ignore', 'pipe', 'pipe'] },
+  );
 
   function parseChunk(text, remnantRef) {
     const combined = remnantRef.value + text;
