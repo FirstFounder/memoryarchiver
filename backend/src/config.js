@@ -15,6 +15,8 @@ const config = Object.freeze({
 
   nasOutputRoot: process.env.NAS_OUTPUT_ROOT ?? '/volume1/RFA',
   nasScatchRoot: process.env.NAS_SCRATCH_ROOT ?? '/volume1/scratch/Pictures',
+  scratchDirs: (process.env.SCRATCH_DIRS ?? 'JNR,MHR,CHR,RAH,GHR')
+    .split(',').map(s => s.trim()).filter(Boolean),
 
   ffmpegPath:  process.env.FFMPEG_PATH  ?? 'ffmpeg',
   ffprobePath: process.env.FFPROBE_PATH ?? 'ffprobe',
