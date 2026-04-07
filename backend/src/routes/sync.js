@@ -22,8 +22,9 @@ export default async function syncRoutes(fastify) {
 
   /**
    * Manually trigger a full-archive rsync.
-   * Syncs /volume1/RFA/ → SYNC_DEST_ROOT/ in one pass.
-   * Returns 409 if a tree sync is already pending or running.
+   * Queues one sync job per archive tree (Fam, Vault) so that only those two
+   * subdirectories are touched — nothing else under NAS_OUTPUT_ROOT is synced.
+   * Returns 409 if any tree sync is already pending or running.
    */
   fastify.post('/api/sync-jobs/trigger', async (_req, reply) => {
     const existing = db.prepare(`
@@ -35,16 +36,25 @@ export default async function syncRoutes(fastify) {
       return reply.code(409).send({ error: 'A full-archive sync is already queued or running.' });
     }
 
-    // Trailing slash on src tells rsync to sync the CONTENTS (not the dir itself)
-    const src  = config.nasOutputRoot.replace(/\/?$/, '/');
-    const dest = config.syncDestRoot.replace(/\/?$/, '/');
+    // Explicit subdirectory list — never syncs anything outside Fam and Vault.
+    const trees = [
+      { subdir: 'Fam',   label: 'Full Sync — Fam'   },
+      { subdir: 'Vault', label: 'Full Sync — Vault'  },
+    ];
 
-    const result = db.prepare(`
-      INSERT INTO sync_jobs (type, src, dest, label)
-      VALUES ('tree', ?, ?, 'Full Archive Sync')
-    `).run(src, dest);
+    const insert = db.prepare(
+      `INSERT INTO sync_jobs (type, src, dest, label) VALUES ('tree', ?, ?, ?)`,
+    );
 
-    return reply.code(201).send({ syncJobId: result.lastInsertRowid });
+    const ids = db.transaction(() =>
+      trees.map(({ subdir, label }) => {
+        const src  = path.join(config.nasOutputRoot, subdir) + '/';
+        const dest = path.join(config.syncDestRoot,  subdir) + '/';
+        return insert.run(src, dest, label).lastInsertRowid;
+      }),
+    )();
+
+    return reply.code(201).send({ syncJobIds: ids });
   });
 
   fastify.delete('/api/sync-jobs/:id', async (req, reply) => {

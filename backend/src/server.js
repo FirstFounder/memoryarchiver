@@ -4,12 +4,13 @@ import staticPlugin from '@fastify/static';
 import path from 'path';
 
 import config from './config.js';
-import uploadRoutes  from './routes/upload.js';
-import submitRoutes  from './routes/submit.js';
-import jobsRoutes    from './routes/jobs.js';
-import browseRoutes  from './routes/browse.js';
-import eventsRoute   from './routes/events.js';
-import syncRoutes    from './routes/sync.js';
+import uploadRoutes    from './routes/upload.js';
+import submitRoutes    from './routes/submit.js';
+import jobsRoutes      from './routes/jobs.js';
+import browseRoutes    from './routes/browse.js';
+import eventsRoute     from './routes/events.js';
+import syncRoutes      from './routes/sync.js';
+import appConfigRoute  from './routes/appConfig.js';
 import { startWorker, stopWorker } from './worker/index.js';
 import { startSyncWorker, stopSyncWorker } from './worker/sync-worker.js';
 
@@ -53,6 +54,14 @@ await fastify.register(jobsRoutes);
 await fastify.register(browseRoutes);
 await fastify.register(eventsRoute);
 await fastify.register(syncRoutes);
+await fastify.register(appConfigRoute);
+
+if (config.deviceRole === 'hub') {
+  // hub-only routes will be registered here
+  fastify.log.info('Device role: hub — hub routes will load here');
+} else {
+  fastify.log.info('Device role: remote');
+}
 
 // ── Startup ───────────────────────────────────────────────────────────────────
 try {

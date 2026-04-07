@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useSSE } from './hooks/useSSE.js';
 import { DropZone } from './components/DropZone.jsx';
 import { FileBrowser } from './components/FileBrowser.jsx';
@@ -6,10 +6,18 @@ import { FileList } from './components/FileList.jsx';
 import { JobForm } from './components/JobForm.jsx';
 import { JobQueue } from './components/JobQueue.jsx';
 import { SyncQueue } from './components/SyncQueue.jsx';
+import { getAppConfig } from './api/appConfig.js';
+import { useAppConfigStore } from './store/appConfigStore.js';
 
 export default function App() {
   // Hook the SSE stream for the lifetime of the app
   useSSE();
+
+  // Fetch server config once on mount and populate the store
+  const setConfig = useAppConfigStore(s => s.setConfig);
+  useEffect(() => {
+    getAppConfig().then(setConfig).catch(() => { /* retain defaults on error */ });
+  }, []);
 
   // Selected source files (uploaded or NAS-picked)
   const [files, setFiles] = useState([]);
@@ -83,6 +91,7 @@ export default function App() {
         <div className="flex-1 p-6 overflow-y-auto flex flex-col">
           <JobQueue />
           <SyncQueue />
+          {/* Hub-only panels (push sync, NFS status) mount here when deviceRole === 'hub' */}
         </div>
       </main>
 

@@ -1,12 +1,10 @@
 import { useState } from 'react';
 import { triggerFullSync } from '../api/sync.js';
-import { useSyncStore } from '../store/syncStore.js';
 import { useSyncJobs } from '../hooks/useSyncJobs.js';
 import { SyncJobCard } from './SyncJobCard.jsx';
 
 export function SyncQueue() {
   const { syncJobs, loading, error, refresh } = useSyncJobs();
-  const upsertSyncJob = useSyncStore(s => s.upsertSyncJob);
 
   const [triggering, setTriggering] = useState(false);
   const [triggerError, setTriggerError] = useState(null);
@@ -18,22 +16,14 @@ export function SyncQueue() {
     setTriggering(true);
     setTriggerError(null);
     try {
-      const result = await triggerFullSync();
-      // Seed the store immediately with a pending card
-      upsertSyncJob({
-        id:         result.syncJobId,
-        status:     'pending',
-        type:       'tree',
-        label:      'Full Archive Sync',
-        progress:   0,
-        created_at: Math.floor(Date.now() / 1000),
-      });
+      await triggerFullSync();
+      // Refresh to pick up both new Fam and Vault pending cards from the server
+      refresh();
     } catch (err) {
       // 409 = already queued — not really an error worth alarming about
       if (!err.message.includes('already')) {
         setTriggerError(err.message);
       }
-      // Refresh the list so the existing queued item is visible
       refresh();
     } finally {
       setTriggering(false);

@@ -28,6 +28,11 @@ const config = Object.freeze({
   // rsync --bwlimit is in KB/s (1024-byte units). 625 ≈ 5 Mbps.
   rsyncBwlimit:   Number(process.env.RSYNC_BWLIMIT_KBPS ?? 625),
 
+  // Hub / remote architecture
+  deviceRole:      process.env.DEVICE_ROLE ?? 'remote',  // 'remote' | 'hub'
+  pushTargets:     (process.env.PUSH_TARGETS ?? '').split(',').map(s => s.trim()).filter(Boolean),
+  nfsDestinations: (process.env.NFS_DESTINATIONS ?? '').split(',').map(s => s.trim()).filter(Boolean),
+
   // Static frontend build output — served by Fastify
   staticRoot: path.resolve(__dirname, '../../frontend/dist'),
 });

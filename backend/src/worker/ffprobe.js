@@ -32,7 +32,10 @@ export async function probe(filePath) {
   const vTags = video.tags ?? {};
 
   // ── Duration ─────────────────────────────────────────────────────────────
-  const duration = parseFloat(fmt.duration ?? video.duration ?? '0');
+  // parseFloat("N/A") → NaN, so sanitise after parsing rather than relying on
+  // the ?? fallback (which only guards against null/undefined, not bad strings).
+  const rawDuration = parseFloat(fmt.duration ?? video.duration ?? '0');
+  const duration = Number.isFinite(rawDuration) && rawDuration > 0 ? rawDuration : 0;
 
   // ── Resolution ────────────────────────────────────────────────────────────
   const width  = video.width  ?? 0;

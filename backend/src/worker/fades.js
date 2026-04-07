@@ -13,7 +13,12 @@ const FADE = 0.5; // seconds — matches iMovie's default "Fade to Black"
  * @returns {{ vf: string, af: string }}
  */
 export function buildFadeFilters(duration, fps) {
-  const fadeOutStart = Math.max(0, duration - FADE);
+  // Guard: if duration is 0, NaN, or shorter than two fade lengths, clamp to
+  // avoid a negative or NaN st= value which FFmpeg silently drops (resulting
+  // in fade-in only, no fade-out).
+  const safeDuration = Number.isFinite(duration) && duration > 0 ? duration : FADE * 2;
+  const fadeOutStart = Math.max(0, safeDuration - FADE);
+
   // FFmpeg fade filter accepts time in seconds via st= (start time)
   const vf = `fade=t=in:st=0:d=${FADE},fade=t=out:st=${fadeOutStart.toFixed(3)}:d=${FADE}`;
   const af = `afade=t=in:st=0:d=${FADE},afade=t=out:st=${fadeOutStart.toFixed(3)}:d=${FADE}`;

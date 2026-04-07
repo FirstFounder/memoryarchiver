@@ -21,11 +21,15 @@ export async function runRsync({ src, dest, onProgress }) {
 
   const args = [
     '-av',
-    '--size-only',       // skip files whose size already matches on the destination;
-                         // avoids re-transferring the entire archive when NFS timestamps
-                         // differ from the source (the default mtime+size check would
-                         // flag every file as changed). Safe for this archive because
-                         // encoded MP4s are write-once and never modified in place.
+    '--ignore-existing', // skip files that already exist at the destination, regardless
+                         // of size or timestamp. Correct for a write-once archive: an
+                         // identically-named file IS the right file. Faster than
+                         // --size-only because rsync doesn't need to stat() the source
+                         // for files already present at the destination.
+    '--omit-dir-times',  // don't try to set timestamps on directories at the destination;
+                         // those dirs may be owned by a different user (e.g. noah) so
+                         // utimes() would fail with EPERM and cause a spurious exit 23
+                         // even when all files transferred correctly.
     '--info=progress2',
     `--bwlimit=${config.rsyncBwlimit}`,
     src,
