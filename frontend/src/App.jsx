@@ -6,6 +6,7 @@ import { FileList } from './components/FileList.jsx';
 import { JobForm } from './components/JobForm.jsx';
 import { JobQueue } from './components/JobQueue.jsx';
 import { SyncQueue } from './components/SyncQueue.jsx';
+import { HubPanel } from './components/hub/HubPanel.jsx';
 import { getAppConfig } from './api/appConfig.js';
 import { useAppConfigStore } from './store/appConfigStore.js';
 
@@ -14,10 +15,15 @@ export default function App() {
   useSSE();
 
   // Fetch server config once on mount and populate the store
-  const setConfig = useAppConfigStore(s => s.setConfig);
+  const setConfig    = useAppConfigStore(s => s.setConfig);
+  const deviceRole   = useAppConfigStore(s => s.deviceRole);
+  const configLoaded = useAppConfigStore(s => s.loaded);
   useEffect(() => {
     getAppConfig().then(setConfig).catch(() => { /* retain defaults on error */ });
   }, []);
+
+  const isHub = configLoaded && deviceRole === 'hub';
+  const [activeTab, setActiveTab] = useState('queues');
 
   // Selected source files (uploaded or NAS-picked)
   const [files, setFiles] = useState([]);
@@ -87,11 +93,43 @@ export default function App() {
           </section>
         </div>
 
-        {/* ── Right panel: encoding queue + sync queue ────────────────────── */}
+        {/* ── Right panel: queues / hub ───────────────────────────────────── */}
         <div className="flex-1 p-6 overflow-y-auto flex flex-col">
-          <JobQueue />
-          <SyncQueue />
-          {/* Hub-only panels (push sync, NFS status) mount here when deviceRole === 'hub' */}
+
+          {/* Tab bar — only shown on hub devices */}
+          {isHub && (
+            <div className="flex gap-1 mb-4 border-b border-slate-800 pb-0 -mx-1">
+              {[
+                { id: 'queues', label: 'Queues' },
+                { id: 'hub',    label: 'Hub' },
+              ].map(tab => (
+                <button
+                  key={tab.id}
+                  onClick={() => setActiveTab(tab.id)}
+                  className={`px-4 py-2 text-sm rounded-t-lg border-b-2 transition-colors ${
+                    activeTab === tab.id
+                      ? 'border-indigo-500 text-indigo-300 bg-slate-800/40'
+                      : 'border-transparent text-slate-500 hover:text-slate-300'
+                  }`}
+                >
+                  {tab.label}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {/* Queues tab (always shown for non-hub; default for hub) */}
+          {(!isHub || activeTab === 'queues') && (
+            <>
+              <JobQueue />
+              <SyncQueue />
+            </>
+          )}
+
+          {/* Hub tab */}
+          {isHub && activeTab === 'hub' && (
+            <HubPanel />
+          )}
         </div>
       </main>
 

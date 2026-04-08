@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useJobStore } from '../store/jobStore.js';
 import { useSyncStore } from '../store/syncStore.js';
+import { useHubStore } from '../store/hubStore.js';
 import { getSyncJobs } from '../api/sync.js';
 
 const BASE_DELAY = 1_000;
@@ -20,11 +21,12 @@ const MAX_DELAY  = 30_000;
  * Call once at the App root.
  */
 export function useSSE() {
-  const upsertJob     = useJobStore(s => s.upsertJob);
-  const upsertSyncJob = useSyncStore(s => s.upsertSyncJob);
-  const setSyncJobs   = useSyncStore(s => s.setSyncJobs);
-  const delay         = useRef(BASE_DELAY);
-  const esRef         = useRef(null);
+  const upsertJob       = useJobStore(s => s.upsertJob);
+  const upsertSyncJob   = useSyncStore(s => s.upsertSyncJob);
+  const setSyncJobs     = useSyncStore(s => s.setSyncJobs);
+  const upsertLiveState = useHubStore(s => s.upsertLiveState);
+  const delay           = useRef(BASE_DELAY);
+  const esRef           = useRef(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -54,6 +56,15 @@ export function useSSE() {
         } catch { /* ignore */ }
       });
 
+      es.addEventListener('hub-sync', (e) => {
+        try {
+          const payload = JSON.parse(e.data);
+          if (payload.destinationId != null) {
+            upsertLiveState(payload.destinationId, payload);
+          }
+        } catch { /* ignore */ }
+      });
+
       es.onerror = () => {
         es.close();
         if (cancelled) return;
@@ -67,5 +78,5 @@ export function useSSE() {
       cancelled = true;
       esRef.current?.close();
     };
-  }, [upsertJob, upsertSyncJob, setSyncJobs]);
+  }, [upsertJob, upsertSyncJob, setSyncJobs, upsertLiveState]);
 }
