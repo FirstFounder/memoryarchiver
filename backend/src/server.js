@@ -13,6 +13,8 @@ import syncRoutes      from './routes/sync.js';
 import appConfigRoute  from './routes/appConfig.js';
 import { startWorker, stopWorker } from './worker/index.js';
 import { startSyncWorker, stopSyncWorker } from './worker/sync-worker.js';
+import { startHubWorker, stopHubWorker } from './worker/hub-worker.js';
+import hubRoutes from './routes/hub/index.js';
 
 const fastify = Fastify({
   logger: {
@@ -57,8 +59,8 @@ await fastify.register(syncRoutes);
 await fastify.register(appConfigRoute);
 
 if (config.deviceRole === 'hub') {
-  // hub-only routes will be registered here
-  fastify.log.info('Device role: hub — hub routes will load here');
+  await fastify.register(hubRoutes);
+  fastify.log.info('Device role: hub — hub routes registered');
 } else {
   fastify.log.info('Device role: remote');
 }
@@ -68,6 +70,7 @@ try {
   await fastify.listen({ port: config.port, host: '0.0.0.0' });
   startWorker();
   startSyncWorker();
+  if (config.deviceRole === 'hub') startHubWorker();
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);
@@ -78,6 +81,7 @@ const shutdown = async (signal) => {
   fastify.log.info(`Received ${signal} — shutting down.`);
   stopWorker();
   stopSyncWorker();
+  if (config.deviceRole === 'hub') stopHubWorker();
   await fastify.close();
   process.exit(0);
 };

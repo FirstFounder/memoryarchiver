@@ -1,6 +1,7 @@
 import db from '../db/client.js';
 import emitter from '../lib/emitter.js';
 import { runRsync } from './rsync.js';
+import { writeManifest } from '../lib/manifest.js';
 
 const POLL_INTERVAL_MS = 3_000;
 let running = false;
@@ -60,6 +61,22 @@ async function processSyncJob(job) {
     `).run(job.id);
     emit(job.id, { status: 'done', progress: 1.0, label: job.label, type: job.type });
 
+    // Write inbound manifest for iolo/jaana so the hub worker can skip unnecessary
+    // outbound syncs when noah's tree already reflects what the remote pushed.
+    // src uses rsync remote syntax (e.g. "iolo:/volume1/RFA/") — extract hostname.
+    const inboundHost = extractRsyncHost(job.src);
+    if (inboundHost && ['iolo', 'jaana'].includes(inboundHost)) {
+      try {
+        await writeManifest({
+          sourcePath: '/volume1/RFA',
+          outputPath: `/volume1/RFA/scratch/${inboundHost}Manifest.txt`,
+        });
+      } catch (err) {
+        console.warn(`[sync-worker] writeManifest failed for inbound job ${job.id}:`, err.message);
+        // non-fatal: inbound sync succeeded; manifest is a convenience for hub worker
+      }
+    }
+
   } catch (err) {
     console.error(`[sync-worker] Sync job ${job.id} failed:`, err.message);
     db.prepare(`
@@ -82,4 +99,14 @@ export function startSyncWorker() {
 
 export function stopSyncWorker() {
   if (pollTimer) clearInterval(pollTimer);
+}
+
+/**
+ * Extract the hostname from an rsync remote-syntax source path.
+ * Matches: [user@]host:/path  →  host (lowercase)
+ * Returns null for plain local paths.
+ */
+function extractRsyncHost(src) {
+  const m = src?.match(/^(?:[^@/]+@)?([a-zA-Z0-9_.-]+):/);
+  return m ? m[1].toLowerCase() : null;
 }
