@@ -100,23 +100,27 @@ async function processJob(job) {
     // src  = the encoded file itself (rsync copies one file into the dest dir)
     // dest = mirror of output_path under SYNC_DEST_ROOT
     //        e.g. /volume1/RFA/Fam/April/2026 → /var/services/homes/noahRFA/Fam/April/2026
-    try {
-      const relDir  = path.relative(config.nasOutputRoot, job.output_path);
-      const syncSrc  = path.join(job.output_path, job.output_filename);
-      const syncDest = path.join(config.syncDestRoot, relDir) + path.sep;
+    if (config.deviceRole !== 'hub') {
+      try {
+        const relDir  = path.relative(config.nasOutputRoot, job.output_path);
+        const syncSrc  = path.join(job.output_path, job.output_filename);
+        const syncDest = path.join(config.syncDestRoot, relDir) + path.sep;
 
-      db.prepare(`
-        INSERT INTO sync_jobs (type, src, dest, label, encoding_job_id)
-        VALUES ('file', ?, ?, ?, ?)
-      `).run(syncSrc, syncDest, job.output_filename, job.id);
+        db.prepare(`
+          INSERT INTO sync_jobs (type, src, dest, label, encoding_job_id)
+          VALUES ('file', ?, ?, ?, ?)
+        `).run(syncSrc, syncDest, job.output_filename, job.id);
 
-      emitter.emit('sync:update', {
-        id:       null,   // client will refresh the list on next tick
-        status:   'queued',
-        label:    job.output_filename,
-      });
-    } catch (syncErr) {
-      console.error('[worker] Failed to queue sync job:', syncErr.message);
+        emitter.emit('sync:update', {
+          id:       null,   // client will refresh the list on next tick
+          status:   'queued',
+          label:    job.output_filename,
+        });
+      } catch (syncErr) {
+        console.error('[worker] Failed to queue sync job:', syncErr.message);
+      }
+    } else {
+      console.log(`[worker] Hub role — skipping post-encode sync for job ${job.id}`);
     }
 
   } catch (err) {
