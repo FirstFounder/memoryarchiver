@@ -122,7 +122,7 @@ export default function App() {
           {(!isHub || activeTab === 'queues') && (
             <>
               <JobQueue />
-              <SyncQueue />
+              {!isHub && <SyncQueue />}
             </>
           )}
 
