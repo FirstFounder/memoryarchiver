@@ -26,9 +26,12 @@ export function DropZone({ onUploaded, disabled }) {
     setUploading(true);
     try {
       const meta = await uploadFiles(files);
+      if (!Array.isArray(meta) || meta.length === 0) {
+        throw new Error('Server returned no file data — please try again.');
+      }
       onUploaded(meta);
     } catch (err) {
-      setError(err.message);
+      setError(err.message || 'Upload failed — check your connection and try again.');
     } finally {
       setUploading(false);
     }
