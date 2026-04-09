@@ -18,6 +18,9 @@ const config = Object.freeze({
   scratchDirs: (process.env.SCRATCH_DIRS ?? 'JNR,MHR,CHR,RAH,GHR')
     .split(',').map(s => s.trim()).filter(Boolean),
 
+  outputUid: Number(process.env.OUTPUT_UID ?? 1026),  // philander's UID
+  outputGid: Number(process.env.OUTPUT_GID ?? 100),   // 'users' group GID
+
   ffmpegPath:  process.env.FFMPEG_PATH  ?? 'ffmpeg',
   ffprobePath: process.env.FFPROBE_PATH ?? 'ffprobe',
   ffmpegThreads: Number(process.env.FFMPEG_THREADS ?? 3),

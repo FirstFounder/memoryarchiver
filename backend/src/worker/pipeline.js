@@ -1,5 +1,6 @@
 import { spawn } from 'child_process';
 import fs from 'fs';
+import { chown, chmod } from 'fs/promises';
 import config from '../config.js';
 import { buildFadeFilters } from './fades.js';
 
@@ -115,9 +116,16 @@ export async function runPipeline({ srcPaths, fileMeta, outputPath, longDesc, on
 
   return new Promise((resolve, reject) => {
     proc.on('error', reject);
-    proc.on('close', code => {
+    proc.on('close', async code => {
       if (code === 0) {
         onProgress(1.0);
+        try {
+          await chmod(outputPath, 0o644);
+          await chown(outputPath, config.outputUid, config.outputGid);
+        } catch (err) {
+          // Non-fatal — file is encoded correctly; log and continue
+          console.warn(`[pipeline] Could not set ownership on ${outputPath}:`, err.message);
+        }
         resolve();
       } else {
         const stderr = Buffer.concat(stderrChunks).toString().slice(-2000);

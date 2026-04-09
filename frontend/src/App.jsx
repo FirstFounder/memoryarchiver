@@ -56,7 +56,7 @@ export default function App() {
         <span className="text-xl">🎬</span>
         <h1 className="text-slate-100 font-semibold tracking-tight">Memory Archiver</h1>
         <span className="text-slate-600 text-xs ml-auto">
-          H.265 · {'{Fam|Vault}'} · Synology DS220+
+          H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
         </span>
       </header>
 
