@@ -15,6 +15,8 @@ import { startWorker, stopWorker } from './worker/index.js';
 import { startSyncWorker, stopSyncWorker } from './worker/sync-worker.js';
 import { startHubWorker, stopHubWorker } from './worker/hub-worker.js';
 import hubRoutes from './routes/hub/index.js';
+import coopRoutes from './routes/coop/index.js';
+import { startCoopScheduler, stopCoopScheduler } from './lib/coopScheduler.js';
 
 const fastify = Fastify({
   logger: {
@@ -65,12 +67,18 @@ if (config.deviceRole === 'hub') {
   fastify.log.info('Device role: remote');
 }
 
+if (config.coopEnabled) {
+  await fastify.register(coopRoutes);
+  fastify.log.info('Coop enabled — coop routes registered');
+}
+
 // ── Startup ───────────────────────────────────────────────────────────────────
 try {
   await fastify.listen({ port: config.port, host: '0.0.0.0' });
   startWorker();
   startSyncWorker();
   if (config.deviceRole === 'hub') startHubWorker();
+  if (config.coopEnabled) startCoopScheduler();
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);
@@ -82,6 +90,7 @@ const shutdown = async (signal) => {
   stopWorker();
   stopSyncWorker();
   if (config.deviceRole === 'hub') stopHubWorker();
+  if (config.coopEnabled) stopCoopScheduler();
   await fastify.close();
   process.exit(0);
 };

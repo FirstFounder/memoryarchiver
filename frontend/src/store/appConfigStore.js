@@ -10,6 +10,7 @@ export const useAppConfigStore = create((set) => ({
   syncDestRoot:    '',
   pushTargets:     [],
   nfsDestinations: [],
+  coopEnabled:     false,
   loaded:          false,
 
   setConfig: (cfg) => set({ ...cfg, loaded: true }),

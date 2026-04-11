@@ -7,6 +7,7 @@ import { JobForm } from './components/JobForm.jsx';
 import { JobQueue } from './components/JobQueue.jsx';
 import { SyncQueue } from './components/SyncQueue.jsx';
 import { HubPanel } from './components/hub/HubPanel.jsx';
+import { CoopPanel } from './components/coop/CoopPanel.jsx';
 import { getAppConfig } from './api/appConfig.js';
 import { useAppConfigStore } from './store/appConfigStore.js';
 
@@ -18,11 +19,21 @@ export default function App() {
   const setConfig    = useAppConfigStore(s => s.setConfig);
   const deviceRole   = useAppConfigStore(s => s.deviceRole);
   const configLoaded = useAppConfigStore(s => s.loaded);
+  const coopEnabled  = useAppConfigStore(s => s.coopEnabled);
   useEffect(() => {
     getAppConfig().then(setConfig).catch(() => { /* retain defaults on error */ });
   }, []);
 
-  const isHub = configLoaded && deviceRole === 'hub';
+  const isHub  = configLoaded && deviceRole === 'hub';
+  const isCoop = configLoaded && coopEnabled;
+
+  const tabs = [
+    { id: 'queues', label: 'Queues' },
+    ...(isHub  ? [{ id: 'hub',  label: 'Hub'  }] : []),
+    ...(isCoop ? [{ id: 'coop', label: 'Coop' }] : []),
+  ];
+  const showTabBar = tabs.length > 1;
+
   const [activeTab, setActiveTab] = useState('queues');
 
   // Selected source files (uploaded or NAS-picked)
@@ -96,13 +107,10 @@ export default function App() {
         {/* ── Right panel: queues / hub ───────────────────────────────────── */}
         <div className="flex-1 p-6 overflow-y-auto flex flex-col">
 
-          {/* Tab bar — only shown on hub devices */}
-          {isHub && (
+          {/* Tab bar — shown when there is more than one tab */}
+          {showTabBar && (
             <div className="flex gap-1 mb-4 border-b border-slate-800 pb-0 -mx-1">
-              {[
-                { id: 'queues', label: 'Queues' },
-                { id: 'hub',    label: 'Hub' },
-              ].map(tab => (
+              {tabs.map(tab => (
                 <button
                   key={tab.id}
                   onClick={() => setActiveTab(tab.id)}
@@ -118,8 +126,8 @@ export default function App() {
             </div>
           )}
 
-          {/* Queues tab (always shown for non-hub; default for hub) */}
-          {(!isHub || activeTab === 'queues') && (
+          {/* Queues tab — always rendered when active */}
+          {activeTab === 'queues' && (
             <>
               <JobQueue />
               {!isHub && <SyncQueue />}
@@ -129,6 +137,11 @@ export default function App() {
           {/* Hub tab */}
           {isHub && activeTab === 'hub' && (
             <HubPanel />
+          )}
+
+          {/* Coop tab */}
+          {isCoop && activeTab === 'coop' && (
+            <CoopPanel />
           )}
         </div>
       </main>

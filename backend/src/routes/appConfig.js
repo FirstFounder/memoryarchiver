@@ -8,6 +8,7 @@ export default async function appConfigRoute(fastify) {
       syncDestRoot:    config.syncDestRoot,
       pushTargets:     config.pushTargets,
       nfsDestinations: config.nfsDestinations,
+      coopEnabled:     config.coopEnabled,
     });
   });
 }

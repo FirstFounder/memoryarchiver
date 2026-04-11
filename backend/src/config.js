@@ -36,6 +36,18 @@ const config = Object.freeze({
   pushTargets:     (process.env.PUSH_TARGETS ?? '').split(',').map(s => s.trim()).filter(Boolean),
   nfsDestinations: (process.env.NFS_DESTINATIONS ?? '').split(',').map(s => s.trim()).filter(Boolean),
 
+  // Coop door controller (janus Raspberry Pi)
+  // Set in .env: COOP_ENABLED, COOP_JANUS_IP, COOP_SSH_KEY, COOP_ALERT_EMAIL
+  coopEnabled:    process.env.COOP_ENABLED === 'true',
+  coopJanusIp:    process.env.COOP_JANUS_IP    ?? '192.168.104.7',
+  coopSshKey:     process.env.COOP_SSH_KEY      ?? '/root/.ssh/app_coop',
+  coopAlertEmail: process.env.COOP_ALERT_EMAIL  ?? 'jeff.rennert@gmail.com',
+
+  // SMTP config for Gmail App Password (nodemailer)
+  // Set in .env: SMTP_USER, SMTP_PASS
+  smtpUser: process.env.SMTP_USER ?? '',
+  smtpPass: process.env.SMTP_PASS ?? '',
+
   // Static frontend build output — served by Fastify
   staticRoot: path.resolve(__dirname, '../../frontend/dist'),
 });
