@@ -19,6 +19,23 @@ function timeAgo(unixSecs) {
   return `${Math.floor(diff / 86400)}d ago`;
 }
 
+function calcEta(job) {
+  if (job.status !== 'processing' || !job.progress || job.progress <= 0.05) return null;
+  const elapsed = job.updated_at - job.created_at;
+  if (elapsed <= 0) return null;
+  const rate = job.progress / elapsed;
+  if (!rate || !isFinite(rate)) return null;
+  const remaining = (1 - job.progress) / rate;
+  if (remaining <= 0 || !isFinite(remaining) || remaining > 86400) return null;
+  return remaining;
+}
+
+function formatEta(seconds) {
+  if (seconds >= 120) return `ETA ~${Math.round(seconds / 60)}m`;
+  if (seconds >= 60)  return 'ETA ~1 min';
+  return 'ETA < 1 min';
+}
+
 /**
  * Single row in the job queue panel.
  * Props:
@@ -26,13 +43,16 @@ function timeAgo(unixSecs) {
  */
 export function JobCard({ job }) {
   const removeJob = useJobStore(s => s.removeJob);
-  const [deleting, setDeleting] = useState(false);
+  const [deleting, setDeleting]         = useState(false);
+  const [forceConfirm, setForceConfirm] = useState(false);
+  const [forceError, setForceError]     = useState(null);
 
   const meta = STATUS_META[job.status] ?? STATUS_META.pending;
-  const canDelete = job.status !== 'processing';
+  const isProcessing = job.status === 'processing';
+  const canDelete = !isProcessing;
 
   async function handleDelete() {
-    if (!canDelete || deleting) return;
+    if (deleting) return;
     setDeleting(true);
     try {
       await deleteJob(job.id);
@@ -41,6 +61,24 @@ export function JobCard({ job }) {
       setDeleting(false);
     }
   }
+
+  async function handleForceDelete() {
+    if (deleting) return;
+    setDeleting(true);
+    setForceConfirm(false);
+    try {
+      await deleteJob(job.id);
+      removeJob(job.id);
+    } catch (err) {
+      setDeleting(false);
+      if (err.status === 409) {
+        setForceError('Job is actively encoding — wait for it to finish');
+        setTimeout(() => setForceError(null), 3000);
+      }
+    }
+  }
+
+  const eta = calcEta(job);
 
   return (
     <div className="bg-slate-800/60 rounded-xl border border-slate-700 p-4 space-y-2">
@@ -73,6 +111,12 @@ export function JobCard({ job }) {
           {job.status === 'processing' && (
             <p className="text-slate-500 text-xs mt-1 text-right">
               {Math.round((job.progress ?? 0) * 100)}%
+              {eta != null && (
+                <>
+                  <span className="mx-1.5 text-slate-700">·</span>
+                  {formatEta(eta)}
+                </>
+              )}
             </p>
           )}
         </div>
@@ -85,7 +129,7 @@ export function JobCard({ job }) {
         </p>
       )}
 
-      {/* Delete button */}
+      {/* Delete button — terminal states */}
       {canDelete && (
         <div className="flex justify-end">
           <button
@@ -95,6 +139,40 @@ export function JobCard({ job }) {
           >
             {deleting ? 'Removing…' : 'Remove'}
           </button>
+        </div>
+      )}
+
+      {/* Force Remove — processing state */}
+      {isProcessing && (
+        <div className="flex justify-end items-center gap-2">
+          {forceError ? (
+            <span className="text-xs text-red-400">{forceError}</span>
+          ) : forceConfirm ? (
+            <>
+              <span className="text-xs text-slate-400">Kill job?</span>
+              <button
+                onClick={handleForceDelete}
+                disabled={deleting}
+                className="text-xs text-amber-400 hover:text-amber-300 transition-colors disabled:opacity-40"
+              >
+                Yes
+              </button>
+              <button
+                onClick={() => setForceConfirm(false)}
+                className="text-xs text-slate-500 hover:text-slate-300 transition-colors"
+              >
+                No
+              </button>
+            </>
+          ) : (
+            <button
+              onClick={() => setForceConfirm(true)}
+              disabled={deleting}
+              className="text-xs text-amber-600 hover:text-amber-400 transition-colors disabled:opacity-40"
+            >
+              {deleting ? 'Removing…' : 'Force Remove'}
+            </button>
+          )}
         </div>
       )}
     </div>

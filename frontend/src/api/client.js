@@ -10,7 +10,9 @@ export async function apiFetch(path, options = {}) {
       const body = await res.json();
       message = body.error ?? body.message ?? message;
     } catch { /* non-JSON error body */ }
-    throw new Error(message);
+    const err = new Error(message);
+    err.status = res.status;
+    throw err;
   }
   // 204 No Content
   if (res.status === 204) return null;

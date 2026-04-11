@@ -31,10 +31,21 @@ export default async function jobsRoutes(fastify) {
   });
 
   fastify.delete('/api/jobs/:id', async (req, reply) => {
-    const job = db.prepare(`SELECT status FROM jobs WHERE id = ?`).get(req.params.id);
+    const job = db.prepare(`SELECT status, ffmpeg_pid FROM jobs WHERE id = ?`).get(req.params.id);
     if (!job) return reply.code(404).send({ error: 'Job not found.' });
     if (job.status === 'processing') {
-      return reply.code(409).send({ error: 'Cannot delete a job that is currently encoding.' });
+      if (job.ffmpeg_pid) {
+        try {
+          process.kill(job.ffmpeg_pid, 0);
+          // Process is alive — refuse deletion
+          return reply.code(409).send({ error: 'Cannot delete a job that is currently encoding.' });
+        } catch {
+          // Process is dead — fall through to delete
+        }
+      }
+      // PID absent or dead — mark cancelled before deleting
+      db.prepare(`UPDATE jobs SET status = 'cancelled', updated_at = ? WHERE id = ?`)
+        .run(Math.floor(Date.now() / 1000), req.params.id);
     }
     db.prepare(`DELETE FROM jobs WHERE id = ?`).run(req.params.id);
     return reply.send({ ok: true });

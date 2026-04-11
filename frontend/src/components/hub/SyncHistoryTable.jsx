@@ -33,9 +33,11 @@ function formatDuration(secs) {
 function formatDate(isoString) {
   if (!isoString) return '—';
   const d = new Date(isoString);
-  return d.toLocaleString(undefined, {
+  return d.toLocaleString('en-US', {
     month: 'short', day: 'numeric',
     hour: '2-digit', minute: '2-digit',
+    timeZone: 'America/Chicago',
+    timeZoneName: 'short',
   });
 }
 
