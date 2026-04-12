@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useSSE } from './hooks/useSSE.js';
 import { DropZone } from './components/DropZone.jsx';
 import { FileBrowser } from './components/FileBrowser.jsx';
@@ -10,6 +10,52 @@ import { HubPanel } from './components/hub/HubPanel.jsx';
 import { CoopPanel } from './components/coop/CoopPanel.jsx';
 import { getAppConfig } from './api/appConfig.js';
 import { useAppConfigStore } from './store/appConfigStore.js';
+
+function useComEdPricing() {
+  const [state, setState] = useState({ currentPrice: null, hourlyAvg: null, trend: 'neutral' });
+  const [loading, setLoading] = useState(false);
+
+  const refresh = useCallback(async () => {
+    setLoading(true);
+    try {
+      const [feedRes, avgRes] = await Promise.all([
+        fetch('https://hourlypricing.comed.com/api?type=5minutefeed&format=json'),
+        fetch('https://hourlypricing.comed.com/api?type=currenthouraverage&format=json'),
+      ]);
+      const [feedData, avgData] = await Promise.all([feedRes.json(), avgRes.json()]);
+
+      const currentPrice = parseFloat(feedData[0]?.price);
+      const hourlyAvg    = parseFloat(avgData[0]?.price);
+
+      let trend = 'neutral';
+      const readings = feedData.slice(0, 12).map(r => parseFloat(r.price));
+      if (readings.length >= 2) {
+        const older  = readings.slice(6, 12);
+        const recent = readings.slice(0, 6);
+        if (older.length && recent.length) {
+          const avgOlder  = older.reduce((s, v) => s + v, 0) / older.length;
+          const avgRecent = recent.reduce((s, v) => s + v, 0) / recent.length;
+          if      (avgRecent < avgOlder) trend = 'down';
+          else if (avgRecent > avgOlder) trend = 'up';
+        }
+      }
+
+      setState({
+        currentPrice: isNaN(currentPrice) ? null : currentPrice,
+        hourlyAvg:    isNaN(hourlyAvg)    ? null : hourlyAvg,
+        trend,
+      });
+    } catch {
+      setState({ currentPrice: null, hourlyAvg: null, trend: 'neutral' });
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => { refresh(); }, [refresh]);
+
+  return { ...state, loading, refresh };
+}
 
 export default function App() {
   // Hook the SSE stream for the lifetime of the app
@@ -26,6 +72,8 @@ export default function App() {
 
   const isHub  = configLoaded && deviceRole === 'hub';
   const isCoop = configLoaded && coopEnabled;
+
+  const { currentPrice, hourlyAvg, trend, loading: comedLoading, refresh: refreshComed } = useComEdPricing();
 
   const tabs = [
     { id: 'queues', label: 'Queues' },
@@ -66,8 +114,23 @@ export default function App() {
       <header className="border-b border-slate-800 px-6 py-4 flex items-center gap-3">
         <span className="text-xl">🎬</span>
         <h1 className="text-slate-100 font-semibold tracking-tight">Memory Archiver</h1>
-        <span className="text-slate-600 text-xs ml-auto">
+        <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
           H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
+          <span className="text-slate-600">·</span>
+          <span className="text-slate-100">
+            {currentPrice != null ? `${currentPrice.toFixed(1)}¢` : '—'}
+          </span>
+          <span className={trend === 'down' ? 'text-green-400' : trend === 'up' ? 'text-red-400' : 'text-slate-400'}>
+            {hourlyAvg != null
+              ? `${trend === 'down' ? '↓ ' : trend === 'up' ? '↑ ' : ''}${hourlyAvg.toFixed(1)}¢`
+              : '—'}
+          </span>
+          <button
+            onClick={refreshComed}
+            className={`text-slate-500 hover:text-slate-300 transition-colors leading-none${comedLoading ? ' opacity-50' : ''}`}
+            disabled={comedLoading}
+            aria-label="Refresh ComEd price"
+          >↻</button>
         </span>
       </header>
 
