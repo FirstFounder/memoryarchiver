@@ -30,6 +30,12 @@ function CameraSection() {
     return () => { cancelled = true; clearInterval(id); };
   }, []);
 
+  function handleLabelSaved(name, newLabel) {
+    setCameras(prev =>
+      prev.map(c => c.name === name ? { ...c, label: newLabel } : c)
+    );
+  }
+
   if (!cameras.length) return null;
 
   return (
@@ -37,7 +43,7 @@ function CameraSection() {
       <h2 className="text-slate-200 font-semibold text-sm mb-3">Cameras</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {cameras.map(cam => (
-          <CameraCard key={cam.name} camera={cam} />
+          <CameraCard key={cam.name} camera={cam} onLabelSaved={handleLabelSaved} />
         ))}
       </div>
     </section>
