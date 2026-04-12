@@ -10,6 +10,7 @@
 
 import db from '../../db/client.js';
 import { triggerSync, reloadDestinationSchedule } from '../../worker/hub-worker.js';
+import camerasRoutes from './cameras.js';
 
 // ── Schedule helpers ──────────────────────────────────────────────────────────
 
@@ -81,6 +82,8 @@ function formatDestination(row) {
 // ── Route registration ────────────────────────────────────────────────────────
 
 export default async function hubRoutes(fastify) {
+
+  await fastify.register(camerasRoutes);
 
   // GET /api/hub/destinations
   fastify.get('/api/hub/destinations', async (_req, reply) => {

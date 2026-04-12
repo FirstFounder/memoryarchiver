@@ -48,6 +48,18 @@ const config = Object.freeze({
   smtpUser: process.env.SMTP_USER ?? '',
   smtpPass: process.env.SMTP_PASS ?? '',
 
+  // Camera relay (hub role only)
+  // MEDIAMTX_API_PORT: mediamtx management API port (9998 on noah)
+  // MEDIAMTX_API_USER: mediamtx API basic auth username
+  // MEDIAMTX_API_PASS: mediamtx API basic auth password
+  // CAMERA_PATHS: comma-separated mediamtx path names to expose (e.g. live/coopdoor)
+  // CAMERA_HLS_BASE: base URL for HLS streams returned to the frontend (e.g. http://192.168.21.6:8888)
+  mediamtxApiPort: Number(process.env.MEDIAMTX_API_PORT ?? 9998),
+  mediamtxApiUser: process.env.MEDIAMTX_API_USER ?? 'api',
+  mediamtxApiPass: process.env.MEDIAMTX_API_PASS ?? '',
+  cameraPaths: (process.env.CAMERA_PATHS ?? '').split(',').map(s => s.trim()).filter(Boolean),
+  cameraHlsBase: process.env.CAMERA_HLS_BASE ?? '',
+
   // Static frontend build output — served by Fastify
   staticRoot: path.resolve(__dirname, '../../frontend/dist'),
 });

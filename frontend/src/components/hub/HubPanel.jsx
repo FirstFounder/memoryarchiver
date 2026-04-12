@@ -1,8 +1,48 @@
-import { useEffect, useCallback } from 'react';
+import { useEffect, useCallback, useRef, useState } from 'react';
 import { getDestinations } from '../../api/hub.js';
 import { useHubStore } from '../../store/hubStore.js';
 import { DestinationCard } from './DestinationCard.jsx';
 import { SyncHistoryTable } from './SyncHistoryTable.jsx';
+import { CameraCard } from './CameraCard.jsx';
+
+function CameraSection() {
+  const [cameras, setCameras] = useState([]);
+  const camerasRef = useRef(cameras);
+  camerasRef.current = cameras;
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function poll() {
+      try {
+        const res = await fetch('/api/hub/cameras');
+        if (!cancelled && res.ok) setCameras(await res.json());
+      } catch { /* mediamtx offline — leave last state */ }
+    }
+
+    poll();
+
+    const id = setInterval(() => {
+      const anyOffline = camerasRef.current.some(c => !c.live);
+      if (anyOffline) poll();
+    }, 15000);
+
+    return () => { cancelled = true; clearInterval(id); };
+  }, []);
+
+  if (!cameras.length) return null;
+
+  return (
+    <section className="mt-6">
+      <h2 className="text-slate-200 font-semibold text-sm mb-3">Cameras</h2>
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+        {cameras.map(cam => (
+          <CameraCard key={cam.name} camera={cam} />
+        ))}
+      </div>
+    </section>
+  );
+}
 
 export function HubPanel() {
   const destinations    = useHubStore(s => s.destinations);
@@ -55,6 +95,9 @@ export function HubPanel() {
 
       {/* Global sync history table */}
       <SyncHistoryTable destinations={destinations} />
+
+      {/* Camera feeds (hub only, renders nothing when CAMERA_PATHS is unset) */}
+      <CameraSection />
     </div>
   );
 }
