@@ -1,6 +1,7 @@
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import staticPlugin from '@fastify/static';
+import cors from '@fastify/cors';
 import path from 'path';
 
 import config from './config.js';
@@ -25,6 +26,15 @@ const fastify = Fastify({
       ? { target: 'pino-pretty' }
       : undefined,
   },
+});
+
+// ── CORS — allow requests from other internal nodes ───────────────────────────
+// Remote nodes (iolo, jaana, iron) fetch /api/hub/cameras directly from noah's
+// backend over the internal S2S links. Without this header the browser blocks
+// cross-origin requests. Restricted to the internal 192.168.x.x subnets.
+await fastify.register(cors, {
+  origin: /^http:\/\/192\.168\.\d+\.\d+(:\d+)?$/,
+  methods: ['GET', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
 });
 
 // ── Multipart (file uploads) ──────────────────────────────────────────────────
