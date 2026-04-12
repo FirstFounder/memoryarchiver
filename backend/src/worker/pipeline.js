@@ -84,8 +84,14 @@ export async function runPipeline({ srcPaths, fileMeta, outputPath, longDesc, on
     outputPath,
   );
 
-  // Ensure output directory exists
-  fs.mkdirSync(outputPath.substring(0, outputPath.lastIndexOf('/')), { recursive: true });
+  const outputDir = outputPath.substring(0, outputPath.lastIndexOf('/'));
+  fs.mkdirSync(outputDir, { recursive: true });
+  try {
+    fs.chownSync(outputDir, config.outputUid, config.outputGid);
+    fs.chmodSync(outputDir, 0o775);
+  } catch (err) {
+    console.warn(`[pipeline] Could not set ownership on ${outputDir}:`, err.message);
+  }
 
   // Spawn: nice -n {level} ffmpeg ...
   const proc = spawn('nice', ['-n', String(config.niceLevel), config.ffmpegPath, ...args], {
