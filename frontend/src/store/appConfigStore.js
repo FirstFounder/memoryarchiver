@@ -11,6 +11,7 @@ export const useAppConfigStore = create((set) => ({
   pushTargets:     [],
   nfsDestinations: [],
   coopEnabled:     false,
+  hubUrl:          '',
   loaded:          false,
 
   setConfig: (cfg) => set({ ...cfg, loaded: true }),

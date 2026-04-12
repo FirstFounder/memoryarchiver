@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCoopStatus, getLastCoopCheck } from '../../api/coop.js';
 import { useCoopStore } from '../../store/coopStore.js';
+import { useAppConfigStore } from '../../store/appConfigStore.js';
 import { DoorCard } from './DoorCard.jsx';
 import { SchedulerCard } from './SchedulerCard.jsx';
 import { CameraCard } from './CameraCard.jsx';
 
-function CameraSection() {
+function CameraSection({ cameraBaseUrl }) {
   const [cameras, setCameras] = useState([]);
   const camerasRef = useRef(cameras);
   camerasRef.current = cameras;
@@ -15,9 +16,9 @@ function CameraSection() {
 
     async function poll() {
       try {
-        const res = await fetch('/api/hub/cameras');
+        const res = await fetch(`${cameraBaseUrl}/api/hub/cameras`);
         if (!cancelled && res.ok) setCameras(await res.json());
-      } catch { /* mediamtx offline — leave last state */ }
+      } catch { /* hub unreachable — leave last state */ }
     }
 
     poll();
@@ -28,7 +29,7 @@ function CameraSection() {
     }, 15000);
 
     return () => { cancelled = true; clearInterval(id); };
-  }, []);
+  }, [cameraBaseUrl]);
 
   function handleLabelSaved(name, newLabel) {
     setCameras(prev =>
@@ -43,7 +44,12 @@ function CameraSection() {
       <h2 className="text-slate-200 font-semibold text-sm mb-3">Cameras</h2>
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {cameras.map(cam => (
-          <CameraCard key={cam.name} camera={cam} onLabelSaved={handleLabelSaved} />
+          <CameraCard
+            key={cam.name}
+            camera={cam}
+            baseUrl={cameraBaseUrl}
+            onLabelSaved={handleLabelSaved}
+          />
         ))}
       </div>
     </section>
@@ -53,6 +59,13 @@ function CameraSection() {
 export function CoopPanel() {
   const applyStatus = useCoopStore(s => s.applyStatus);
   const setLastCheck = useCoopStore(s => s.setLastCheck);
+  const deviceRole  = useAppConfigStore(s => s.deviceRole);
+  const hubUrl      = useAppConfigStore(s => s.hubUrl);
+
+  // On hub: use relative URL (same origin). On non-hub: use hub's absolute URL.
+  // If hubUrl is not configured on a non-hub node, CameraSection gets no data
+  // and renders nothing — acceptable degradation.
+  const cameraBaseUrl = deviceRole === 'hub' ? '' : hubUrl;
 
   useEffect(() => {
     getCoopStatus().then(applyStatus).catch(() => applyStatus({ error: 'unreachable' }));
@@ -65,7 +78,7 @@ export function CoopPanel() {
         <DoorCard />
         <SchedulerCard />
       </div>
-      <CameraSection />
+      <CameraSection cameraBaseUrl={cameraBaseUrl} />
     </div>
   );
 }

@@ -9,6 +9,7 @@ export default async function appConfigRoute(fastify) {
       pushTargets:     config.pushTargets,
       nfsDestinations: config.nfsDestinations,
       coopEnabled:     config.coopEnabled,
+      hubUrl:          config.hubUrl,
     });
   });
 }

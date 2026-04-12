@@ -48,6 +48,12 @@ const config = Object.freeze({
   smtpUser: process.env.SMTP_USER ?? '',
   smtpPass: process.env.SMTP_PASS ?? '',
 
+  // HUB_URL: base URL of the hub node's backend, used by non-hub nodes to
+  // fetch camera status. Set on all non-hub nodes.
+  // e.g. HUB_URL=http://192.168.21.6:9153
+  // On the hub itself this can be empty or set to its own address — unused.
+  hubUrl: process.env.HUB_URL ?? '',
+
   // Camera relay (hub role only)
   // MEDIAMTX_API_PORT: mediamtx management API port (9998 on noah)
   // MEDIAMTX_API_USER: mediamtx API basic auth username

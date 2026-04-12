@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import Hls from 'hls.js';
 
-export function CameraCard({ camera, onLabelSaved }) {
+export function CameraCard({ camera, baseUrl = '', onLabelSaved }) {
   const videoRef = useRef(null);
   const hlsRef = useRef(null);
 
@@ -27,7 +27,7 @@ export function CameraCard({ camera, onLabelSaved }) {
     setSaving(true);
     try {
       const res = await fetch(
-        `/api/hub/cameras/${encodeURIComponent(camera.name)}/label`,
+        `${baseUrl}/api/hub/cameras/${encodeURIComponent(camera.name)}/label`,
         {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
