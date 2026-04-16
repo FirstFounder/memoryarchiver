@@ -66,6 +66,14 @@ const config = Object.freeze({
   cameraPaths: (process.env.CAMERA_PATHS ?? '').split(',').map(s => s.trim()).filter(Boolean),
   cameraHlsBase: process.env.CAMERA_HLS_BASE ?? '',
 
+  // Tesla Fleet API
+  teslaEnabled: process.env.TESLA_ENABLED === 'true',
+  teslaClientId: process.env.TESLA_CLIENT_ID ?? '',
+  teslaClientSecret: process.env.TESLA_CLIENT_SECRET ?? '',
+  teslaRedirectUri: process.env.TESLA_REDIRECT_URI ?? '',
+  teslaFleetApiBase: process.env.TESLA_FLEET_API_BASE ?? 'https://fleet-api.prd.na.vn.cloud.tesla.com',
+  teslaAuthBase: process.env.TESLA_AUTH_BASE ?? 'https://fleet-auth.prd.vn.cloud.tesla.com',
+
   // Static frontend build output — served by Fastify
   staticRoot: path.resolve(__dirname, '../../frontend/dist'),
 });

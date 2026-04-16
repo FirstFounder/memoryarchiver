@@ -8,6 +8,9 @@ import { JobQueue } from './components/JobQueue.jsx';
 import { SyncQueue } from './components/SyncQueue.jsx';
 import { HubPanel } from './components/hub/HubPanel.jsx';
 import { CoopPanel } from './components/coop/CoopPanel.jsx';
+import { TeslaPanel } from './components/tesla/TeslaPanel.jsx';
+import { GaragePanel } from './components/tesla/GaragePanel.jsx';
+import { TeslaSettingsModal } from './components/tesla/TeslaSettingsModal.jsx';
 import { getAppConfig } from './api/appConfig.js';
 import { useAppConfigStore } from './store/appConfigStore.js';
 
@@ -66,12 +69,14 @@ export default function App() {
   const deviceRole   = useAppConfigStore(s => s.deviceRole);
   const configLoaded = useAppConfigStore(s => s.loaded);
   const coopEnabled  = useAppConfigStore(s => s.coopEnabled);
+  const teslaEnabled = useAppConfigStore(s => s.teslaEnabled);
   useEffect(() => {
     getAppConfig().then(setConfig).catch(() => { /* retain defaults on error */ });
   }, []);
 
   const isHub  = configLoaded && deviceRole === 'hub';
   const isCoop = configLoaded && coopEnabled;
+  const isTesla = configLoaded && teslaEnabled;
 
   const { currentPrice, hourlyAvg, trend, loading: comedLoading, refresh: refreshComed } = useComEdPricing();
 
@@ -79,10 +84,18 @@ export default function App() {
     { id: 'queues', label: 'Queues' },
     ...(isHub  ? [{ id: 'hub',  label: 'Hub'  }] : []),
     ...(isCoop ? [{ id: 'coop', label: 'Coop' }] : []),
+    ...(isTesla ? [{ id: 'garage', label: 'Garage' }, { id: 'tesla', label: 'Tesla' }] : []),
   ];
   const showTabBar = tabs.length > 1;
 
   const [activeTab, setActiveTab] = useState('queues');
+  const [settingsOpen, setSettingsOpen] = useState(false);
+
+  useEffect(() => {
+    if (!tabs.some(tab => tab.id === activeTab)) {
+      setActiveTab('queues');
+    }
+  }, [activeTab, tabs]);
 
   // Selected source files (uploaded or NAS-picked)
   const [files, setFiles] = useState([]);
@@ -131,6 +144,15 @@ export default function App() {
             disabled={comedLoading}
             aria-label="Refresh ComEd price"
           >↻</button>
+          {isTesla && (
+            <button
+              onClick={() => setSettingsOpen(true)}
+              className="ml-2 rounded-lg border border-slate-700 px-2.5 py-1 text-slate-300 transition-colors hover:border-slate-500 hover:text-slate-100"
+              aria-label="Tesla settings"
+            >
+              Settings
+            </button>
+          )}
         </span>
       </header>
 
@@ -206,6 +228,14 @@ export default function App() {
           {isCoop && activeTab === 'coop' && (
             <CoopPanel />
           )}
+
+          {isTesla && activeTab === 'garage' && (
+            <GaragePanel />
+          )}
+
+          {isTesla && activeTab === 'tesla' && (
+            <TeslaPanel />
+          )}
         </div>
       </main>
 
@@ -233,6 +263,10 @@ export default function App() {
             </div>
           </div>
         </div>
+      )}
+
+      {settingsOpen && isTesla && (
+        <TeslaSettingsModal onClose={() => setSettingsOpen(false)} />
       )}
     </div>
   );

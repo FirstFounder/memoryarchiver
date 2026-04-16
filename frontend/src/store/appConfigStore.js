@@ -11,6 +11,7 @@ export const useAppConfigStore = create((set) => ({
   pushTargets:     [],
   nfsDestinations: [],
   coopEnabled:     false,
+  teslaEnabled:    false,
   hubUrl:          '',
   loaded:          false,
 

@@ -18,6 +18,7 @@ import { startHubWorker, stopHubWorker } from './worker/hub-worker.js';
 import hubRoutes from './routes/hub/index.js';
 import coopRoutes from './routes/coop/index.js';
 import { startCoopScheduler, stopCoopScheduler } from './lib/coopScheduler.js';
+import teslaRoutes from './routes/tesla/index.js';
 
 const fastify = Fastify({
   logger: {
@@ -80,6 +81,11 @@ if (config.deviceRole === 'hub') {
 if (config.coopEnabled) {
   await fastify.register(coopRoutes);
   fastify.log.info('Coop enabled — coop routes registered');
+}
+
+if (config.teslaEnabled) {
+  await fastify.register(teslaRoutes);
+  fastify.log.info('Tesla enabled — Tesla routes registered');
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
