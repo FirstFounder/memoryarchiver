@@ -6,9 +6,12 @@ import {
   hasCredentials,
   saveCredentials,
 } from '../../lib/teslaAuth.js';
+import { computePlan, pushPlan } from '../../lib/chargeScheduler.js';
+import { ensureVehicleOnline } from '../../lib/teslaFleet.js';
 
 const VEHICLE_COLUMNS = `
-  id, vin, nickname, mode, departure_time, pack_capacity_kwh,
+  id, vin, nickname, display_name, model_label, cached_odometer,
+  mode, departure_time, pack_capacity_kwh,
   normal_charge_amps, last_hpwc_amps, last_charge_limit_pct,
   pack_swap_date, created_at, updated_at
 `;
@@ -25,10 +28,6 @@ function serializeVehicle(row) {
   return row ? { ...row, hasCredentials: hasCredentials() } : null;
 }
 
-function sleep(ms) {
-  return new Promise(resolve => setTimeout(resolve, ms));
-}
-
 function toInteger(value) {
   if (value === null || value === undefined || value === '') return null;
   const parsed = Number(value);
@@ -41,26 +40,6 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-async function ensureVehicleOnline(vin) {
-  const info = await fleetFetch(`/api/1/vehicles/${vin}`);
-  let state = info?.response?.state ?? 'offline';
-
-  if (state === 'online') {
-    return state;
-  }
-
-  await fleetFetch(`/api/1/vehicles/${vin}/wake_up`, { method: 'POST' });
-
-  for (let attempt = 0; attempt < 6; attempt += 1) {
-    await sleep(2_000);
-    const next = await fleetFetch(`/api/1/vehicles/${vin}`);
-    state = next?.response?.state ?? state;
-    if (state === 'online') break;
-  }
-
-  return state;
-}
-
 function updateVehicleTelemetry(vin, { hpwcAmps, chargeLimitPct }) {
   db.prepare(`
     UPDATE tesla_config
@@ -69,6 +48,33 @@ function updateVehicleTelemetry(vin, { hpwcAmps, chargeLimitPct }) {
         updated_at = ?
     WHERE vin = ?
   `).run(hpwcAmps, chargeLimitPct, Date.now(), vin);
+}
+
+function getLatestPlanRow(vin) {
+  return db.prepare(`
+    SELECT *
+    FROM tesla_plans
+    WHERE vin = ?
+    ORDER BY computed_at DESC, id DESC
+    LIMIT 1
+  `).get(vin);
+}
+
+function getTeslaSettings() {
+  return db.prepare(`
+    SELECT *
+    FROM tesla_settings
+    WHERE id = 1
+  `).get();
+}
+
+function serializePlan(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    day_ahead_prices_json: row.day_ahead_prices_json ? JSON.parse(row.day_ahead_prices_json) : [],
+    strategy_comparison_json: row.strategy_comparison_json ? JSON.parse(row.strategy_comparison_json) : [],
+  };
 }
 
 export default async function teslaRoutes(fastify) {
@@ -242,6 +248,14 @@ export default async function teslaRoutes(fastify) {
       updates.push('mode = ?');
       values.push(body.mode);
     }
+    if (body.display_name !== undefined) {
+      updates.push('display_name = ?');
+      values.push(body.display_name?.trim() || null);
+    }
+    if (body.model_label !== undefined) {
+      updates.push('model_label = ?');
+      values.push(body.model_label?.trim() || null);
+    }
     if (body.departure_time !== undefined) {
       updates.push('departure_time = ?');
       values.push(body.departure_time);
@@ -297,5 +311,121 @@ export default async function teslaRoutes(fastify) {
     } catch {
       return reply.send({ hasCredentials: true, tokenValid: false });
     }
+  });
+
+  fastify.get('/api/tesla/plan/:vin', async (req, reply) => {
+    const { vin } = req.params;
+    const vehicle = getVehicle(vin);
+    if (!vehicle) {
+      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
+    }
+
+    return reply.send(serializePlan(getLatestPlanRow(vin)));
+  });
+
+  fastify.get('/api/tesla/plans/:vin', async (req, reply) => {
+    const { vin } = req.params;
+    const vehicle = getVehicle(vin);
+    if (!vehicle) {
+      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
+    }
+
+    const rows = db.prepare(`
+      SELECT *
+      FROM tesla_plans
+      WHERE vin = ?
+      ORDER BY computed_at DESC, id DESC
+      LIMIT 30
+    `).all(vin);
+
+    return reply.send(rows.map(serializePlan));
+  });
+
+  fastify.post('/api/tesla/plan/:vin/recompute', async (req, reply) => {
+    const { vin } = req.params;
+    const vehicle = getVehicle(vin);
+    if (!vehicle) {
+      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
+    }
+
+    db.prepare(`
+      UPDATE tesla_plans
+      SET status = 'superseded',
+          alert = NULL
+      WHERE vin = ? AND status = 'user_overridden'
+    `).run(vin);
+
+    const plan = await computePlan(vin);
+    if (plan?.status === 'skipped') {
+      return reply.send(serializePlan(plan));
+    }
+
+    const pushed = await pushPlan(plan, vin);
+    return reply.send(serializePlan(pushed));
+  });
+
+  fastify.post('/api/tesla/plan/:vin/skip', async (req, reply) => {
+    const { vin } = req.params;
+    const vehicle = getVehicle(vin);
+    if (!vehicle) {
+      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
+    }
+
+    db.prepare(`
+      INSERT INTO tesla_plans (vin, computed_at, status, strategy_comparison_json)
+      VALUES (?, ?, 'skipped', ?)
+    `).run(vin, Date.now(), JSON.stringify([]));
+
+    return reply.send({ ok: true });
+  });
+
+  fastify.get('/api/tesla/settings', async (_req, reply) => {
+    return reply.send(getTeslaSettings());
+  });
+
+  fastify.patch('/api/tesla/settings', async (req, reply) => {
+    const settings = getTeslaSettings();
+    const patch = req.body ?? {};
+    const numericFields = {
+      variance_threshold_cents: toNumber,
+      burst_pref_threshold_dollars: toNumber,
+      winter_temp_high_f: toNumber,
+      winter_temp_low_f: toNumber,
+      winter_min_amps_mid: toInteger,
+      winter_min_amps_cold: toInteger,
+      soc_drop_reset_pct: toInteger,
+      early_window_open_hour: toInteger,
+    };
+
+    const updates = [];
+    const values = [];
+
+    for (const [key, parser] of Object.entries(numericFields)) {
+      if (patch[key] === undefined) continue;
+      const parsed = parser(patch[key]);
+      if (parsed === null) {
+        return reply.code(400).send({ error: 'invalid_setting', message: `${key} must be numeric` });
+      }
+      updates.push(`${key} = ?`);
+      values.push(parsed);
+    }
+
+    if (patch.eval_cron !== undefined) {
+      updates.push('eval_cron = ?');
+      values.push(String(patch.eval_cron));
+    }
+
+    if (!updates.length) {
+      return reply.send(settings);
+    }
+
+    db.prepare(`
+      UPDATE tesla_settings
+      SET ${updates.join(', ')},
+          updated_at = ?
+      WHERE id = 1
+    `).run(...values, Date.now());
+
+    return reply.send(getTeslaSettings());
   });
 }

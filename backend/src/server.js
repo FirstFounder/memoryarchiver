@@ -19,6 +19,7 @@ import hubRoutes from './routes/hub/index.js';
 import coopRoutes from './routes/coop/index.js';
 import { startCoopScheduler, stopCoopScheduler } from './lib/coopScheduler.js';
 import teslaRoutes from './routes/tesla/index.js';
+import { startTeslaScheduler, stopTeslaScheduler } from './lib/teslaScheduler.js';
 
 const fastify = Fastify({
   logger: {
@@ -95,6 +96,7 @@ try {
   startSyncWorker();
   if (config.deviceRole === 'hub') startHubWorker();
   if (config.coopEnabled) startCoopScheduler();
+  if (config.teslaEnabled) startTeslaScheduler();
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);
@@ -107,6 +109,7 @@ const shutdown = async (signal) => {
   stopSyncWorker();
   if (config.deviceRole === 'hub') stopHubWorker();
   if (config.coopEnabled) stopCoopScheduler();
+  if (config.teslaEnabled) stopTeslaScheduler();
   await fastify.close();
   process.exit(0);
 };

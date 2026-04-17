@@ -73,6 +73,9 @@ const config = Object.freeze({
   teslaRedirectUri: process.env.TESLA_REDIRECT_URI ?? '',
   teslaFleetApiBase: process.env.TESLA_FLEET_API_BASE ?? 'https://fleet-api.prd.na.vn.cloud.tesla.com',
   teslaAuthBase: process.env.TESLA_AUTH_BASE ?? 'https://fleet-auth.prd.vn.cloud.tesla.com',
+  teslaPrivateKeyPath: process.env.TESLA_PRIVATE_KEY_PATH ?? null,
+  weatherLat: parseFloat(process.env.WEATHER_LAT ?? '41.8827'),
+  weatherLon: parseFloat(process.env.WEATHER_LON ?? '-87.7538'),
 
   // Static frontend build output — served by Fastify
   staticRoot: path.resolve(__dirname, '../../frontend/dist'),

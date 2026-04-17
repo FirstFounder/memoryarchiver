@@ -19,6 +19,10 @@ TESLA_CLIENT_SECRET=
 TESLA_REDIRECT_URI=
 TESLA_FLEET_API_BASE=https://fleet-api.prd.na.vn.cloud.tesla.com
 TESLA_AUTH_BASE=https://fleet-auth.prd.vn.cloud.tesla.com
+TESLA_PRIVATE_KEY_PATH=/var/services/homes/philander/infra/secrets/tesla_private_key.pem
+WEATHER_LAT=41.8827
+WEATHER_LON=-87.7538
 ```
 
 `TESLA_ENABLED=true` gates both the backend routes and the frontend Garage/Tesla UI.
+`WEATHER_LAT` and `WEATHER_LON` default to Cicero, IL if omitted.

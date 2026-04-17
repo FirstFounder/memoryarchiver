@@ -4,6 +4,8 @@ export const useTeslaStore = create((set) => ({
   vehicles: [],
   vehicleStatus: {},
   manualEntries: {},
+  plans: {},
+  settings: null,
   selectedGarageVin: null,
 
   setVehicles(arr) {
@@ -26,6 +28,19 @@ export const useTeslaStore = create((set) => ({
         [vin]: entry,
       },
     }));
+  },
+
+  setPlan(vin, plan) {
+    set(state => ({
+      plans: {
+        ...state.plans,
+        [vin]: plan,
+      },
+    }));
+  },
+
+  setSettings(settings) {
+    set({ settings });
   },
 
   setSelectedGarageVin(vin) {

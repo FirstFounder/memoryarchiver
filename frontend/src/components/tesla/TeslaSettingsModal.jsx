@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import {
   getCredentialStatus,
+  getSettings,
   getVehicles,
+  patchSettings,
   patchVehicleConfig,
   saveCredentials,
 } from '../../api/tesla.js';
@@ -29,7 +31,9 @@ function CredentialStatus({ status }) {
 
 export function TeslaSettingsModal({ onClose }) {
   const vehicles = useTeslaStore(s => s.vehicles);
+  const settings = useTeslaStore(s => s.settings);
   const setVehicles = useTeslaStore(s => s.setVehicles);
+  const setSettings = useTeslaStore(s => s.setSettings);
   const [credentialForm, setCredentialForm] = useState({
     clientId: '',
     clientSecret: '',
@@ -40,6 +44,7 @@ export function TeslaSettingsModal({ onClose }) {
   const [message, setMessage] = useState('');
 
   const [vehicleDrafts, setVehicleDrafts] = useState({});
+  const [settingsDraft, setSettingsDraft] = useState({});
   const orderedVehicles = useMemo(() => vehicles.slice().sort((a, b) => a.nickname.localeCompare(b.nickname)), [vehicles]);
 
   useEffect(() => {
@@ -47,10 +52,11 @@ export function TeslaSettingsModal({ onClose }) {
 
     async function load() {
       try {
-        const [status, rows] = await Promise.all([getCredentialStatus(), getVehicles()]);
+        const [status, rows, schedulerSettings] = await Promise.all([getCredentialStatus(), getVehicles(), getSettings()]);
         if (cancelled) return;
         setCredentialStatus(status);
         setVehicles(rows);
+        setSettings(schedulerSettings);
       } catch {
         if (!cancelled) setCredentialStatus({ hasCredentials: false, tokenValid: false });
       }
@@ -58,12 +64,14 @@ export function TeslaSettingsModal({ onClose }) {
 
     load();
     return () => { cancelled = true; };
-  }, [setVehicles]);
+  }, [setSettings, setVehicles]);
 
   useEffect(() => {
     setVehicleDrafts(Object.fromEntries(orderedVehicles.map(vehicle => [
       vehicle.vin,
       {
+        display_name: vehicle.display_name ?? '',
+        model_label: vehicle.model_label ?? '',
         departure_time: vehicle.departure_time,
         pack_capacity_kwh: String(vehicle.pack_capacity_kwh ?? ''),
         normal_charge_amps: String(vehicle.normal_charge_amps ?? ''),
@@ -71,6 +79,17 @@ export function TeslaSettingsModal({ onClose }) {
       },
     ])));
   }, [orderedVehicles]);
+
+  useEffect(() => {
+    setSettingsDraft({
+      variance_threshold_cents: settings?.variance_threshold_cents ?? '',
+      burst_pref_threshold_dollars: settings?.burst_pref_threshold_dollars ?? '',
+      winter_temp_high_f: settings?.winter_temp_high_f ?? '',
+      winter_temp_low_f: settings?.winter_temp_low_f ?? '',
+      winter_min_amps_mid: settings?.winter_min_amps_mid ?? '',
+      winter_min_amps_cold: settings?.winter_min_amps_cold ?? '',
+    });
+  }, [settings]);
 
   async function handleCredentialSave(event) {
     event.preventDefault();
@@ -97,6 +116,8 @@ export function TeslaSettingsModal({ onClose }) {
 
     try {
       const updated = await patchVehicleConfig(vin, {
+        display_name: draft.display_name,
+        model_label: draft.model_label,
         departure_time: draft.departure_time,
         pack_capacity_kwh: Number(draft.pack_capacity_kwh),
         normal_charge_amps: Number(draft.normal_charge_amps),
@@ -117,6 +138,17 @@ export function TeslaSettingsModal({ onClose }) {
         ...patch,
       },
     }));
+  }
+
+  async function handleSettingsBlur(field) {
+    const value = settingsDraft[field];
+    try {
+      const updated = await patchSettings({ [field]: value });
+      setSettings(updated);
+      setMessage('Scheduler settings saved.');
+    } catch (err) {
+      setMessage(err.message);
+    }
   }
 
   return (
@@ -190,6 +222,22 @@ export function TeslaSettingsModal({ onClose }) {
 
                   <div className="mt-4 grid gap-4 md:grid-cols-3">
                     <label className="grid gap-2 text-sm text-slate-300">
+                      <span>Display name</span>
+                      <input
+                        value={draft.display_name ?? ''}
+                        onChange={(event) => updateVehicleDraft(vehicle.vin, { display_name: event.target.value })}
+                        className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-indigo-500"
+                      />
+                    </label>
+                    <label className="grid gap-2 text-sm text-slate-300">
+                      <span>Model label</span>
+                      <input
+                        value={draft.model_label ?? ''}
+                        onChange={(event) => updateVehicleDraft(vehicle.vin, { model_label: event.target.value })}
+                        className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-indigo-500"
+                      />
+                    </label>
+                    <label className="grid gap-2 text-sm text-slate-300">
                       <span>Departure time</span>
                       <input
                         type="time"
@@ -249,6 +297,32 @@ export function TeslaSettingsModal({ onClose }) {
                 </div>
               );
             })}
+          </section>
+
+          <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/40 p-5">
+            <h3 className="text-lg font-semibold text-slate-100">Scheduler Settings</h3>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              {[
+                ['variance_threshold_cents', 'Variance threshold (¢)', '0.1'],
+                ['burst_pref_threshold_dollars', 'Burst preference threshold ($)', '0.05'],
+                ['winter_temp_high_f', 'Winter temp high (°F)', '1'],
+                ['winter_temp_low_f', 'Winter temp low (°F)', '1'],
+                ['winter_min_amps_mid', 'Winter min amps mid', '1'],
+                ['winter_min_amps_cold', 'Winter min amps cold', '1'],
+              ].map(([field, label, step]) => (
+                <label key={field} className="grid gap-2 text-sm text-slate-300">
+                  <span>{label}</span>
+                  <input
+                    type="number"
+                    step={step}
+                    value={settingsDraft[field] ?? ''}
+                    onChange={(event) => setSettingsDraft(state => ({ ...state, [field]: event.target.value }))}
+                    onBlur={() => handleSettingsBlur(field)}
+                    className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-indigo-500"
+                  />
+                </label>
+              ))}
+            </div>
           </section>
 
           {message && (
