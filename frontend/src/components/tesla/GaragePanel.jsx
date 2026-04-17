@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { getManualEntry, getVehicles, submitManualEntry } from '../../api/tesla.js';
+import { getManualEntry, getVehicles, patchVehicleConfig, submitManualEntry } from '../../api/tesla.js';
 import { useTeslaStore } from '../../store/teslaStore.js';
 import { SOCRoller } from './SOCRoller.jsx';
 
@@ -21,7 +21,9 @@ export function GaragePanel() {
   const [socPct, setSocPct] = useState(50);
   const [chargeLimitPct, setChargeLimitPct] = useState(90);
   const [hpwcAmps, setHpwcAmps] = useState(48);
+  const [departureTime, setDepartureTime] = useState('07:30');
   const [saving, setSaving] = useState(false);
+  const [savingDeparture, setSavingDeparture] = useState(false);
   const [message, setMessage] = useState('');
 
   useEffect(() => {
@@ -55,6 +57,7 @@ export function GaragePanel() {
 
     let cancelled = false;
     setMessage('');
+    setDepartureTime(selectedVehicle.departure_time ?? '07:30');
 
     async function loadManualEntry() {
       try {
@@ -76,6 +79,22 @@ export function GaragePanel() {
     loadManualEntry();
     return () => { cancelled = true; };
   }, [selectedVehicle?.vin]);
+
+  async function handleDepartureChange(newTime) {
+    setDepartureTime(newTime);
+    if (!selectedVehicle || savingDeparture) return;
+    setSavingDeparture(true);
+    try {
+      const updated = await patchVehicleConfig(selectedVehicle.vin, { departure_time: newTime });
+      setVehicles(vehicles.map(vehicle => (
+        vehicle.vin === selectedVehicle.vin ? { ...vehicle, ...updated } : vehicle
+      )));
+    } catch {
+      // silent - value already shown in input
+    } finally {
+      setSavingDeparture(false);
+    }
+  }
 
   async function handleSubmit() {
     if (!selectedVehicle || saving) return;
@@ -122,14 +141,14 @@ export function GaragePanel() {
                 key={vehicle.vin}
                 type="button"
                 onClick={() => setSelectedGarageVin(vehicle.vin)}
-                className={`min-h-16 rounded-2xl border px-5 py-4 text-left text-lg font-semibold transition-colors ${
+                className={`min-h-16 rounded-2xl border px-5 py-4 text-left transition-colors ${
                   selected
                     ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/20 text-slate-50'
                     : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] text-slate-300 hover:border-slate-500'
                 }`}
               >
-                <span className="block">{vehicle.nickname}</span>
-                <span className="mt-1 block text-sm font-normal text-slate-500">{vehicle.vin.slice(-6)}</span>
+                <span className="block text-lg font-semibold">{vehicle.display_name ?? vehicle.nickname}</span>
+                <span className="mt-0.5 block text-sm font-normal text-slate-500">{vehicle.model_label ?? vehicle.nickname}</span>
               </button>
             );
           })}
@@ -168,6 +187,16 @@ export function GaragePanel() {
                   );
                 })}
               </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold uppercase tracking-[0.24em] text-slate-400">Departure</p>
+              <input
+                type="time"
+                value={departureTime}
+                onChange={e => handleDepartureChange(e.target.value)}
+                className="w-full rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3 text-xl font-semibold text-slate-100 [color-scheme:dark] focus:border-[color:var(--color-accent)] focus:outline-none"
+              />
             </div>
 
             {pendingEntry && (

@@ -40,14 +40,15 @@ function toNumber(value) {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function updateVehicleTelemetry(vin, { hpwcAmps, chargeLimitPct }) {
+function updateVehicleTelemetry(vin, { hpwcAmps, chargeLimitPct, cachedOdometer }) {
   db.prepare(`
     UPDATE tesla_config
     SET last_hpwc_amps = COALESCE(?, last_hpwc_amps),
         last_charge_limit_pct = COALESCE(?, last_charge_limit_pct),
+        cached_odometer = COALESCE(?, cached_odometer),
         updated_at = ?
     WHERE vin = ?
-  `).run(hpwcAmps, chargeLimitPct, Date.now(), vin);
+  `).run(hpwcAmps, chargeLimitPct, cachedOdometer ?? null, Date.now(), vin);
 }
 
 function getLatestPlanRow(vin) {
@@ -146,6 +147,7 @@ export default async function teslaRoutes(fastify) {
       const state = await ensureVehicleOnline(vin);
       const payload = await fleetFetch(`/api/1/vehicles/${vin}/vehicle_data`);
       const chargeState = payload?.response?.charge_state ?? {};
+      const vehicleState = payload?.response?.vehicle_state ?? {};
       const result = {
         vin,
         mode: vehicle.mode,
@@ -161,6 +163,7 @@ export default async function teslaRoutes(fastify) {
       updateVehicleTelemetry(vin, {
         hpwcAmps: toInteger(chargeState.charger_pilot_current ?? chargeState.charge_current_request_max),
         chargeLimitPct: toInteger(chargeState.charge_limit_soc),
+        cachedOdometer: Number.isFinite(Number(vehicleState.odometer)) ? Math.round(Number(vehicleState.odometer)) : null,
       });
 
       return reply.send(result);
