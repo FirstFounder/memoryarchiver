@@ -15,5 +15,5 @@ CREATE TABLE IF NOT EXISTS tesla_config (
 
 INSERT OR IGNORE INTO tesla_config (vin, nickname, mode, departure_time, last_hpwc_amps, last_charge_limit_pct)
 VALUES
-  ('VIN_2015_PLACEHOLDER', '2015', 'connectivity', '07:30', 48, 90),
-  ('VIN_2012_PLACEHOLDER', '2012', 'connectivity', '08:00', 80, 85);
+  ('5YJSA1H42FF096078', '2015', 'connectivity', '07:30', 48, 90),
+  ('5YJSA1CN8CFP01703', '2012', 'connectivity', '08:00', 80, 85);
