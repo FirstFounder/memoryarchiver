@@ -14,6 +14,8 @@ import { TeslaSettingsModal } from './components/tesla/TeslaSettingsModal.jsx';
 import { getAppConfig } from './api/appConfig.js';
 import { useAppConfigStore } from './store/appConfigStore.js';
 
+const FIXED_RATE_CENTS = 7.8;
+
 function useComEdPricing() {
   const [state, setState] = useState({ currentPrice: null, hourlyAvg: null, trend: 'neutral' });
   const [loading, setLoading] = useState(false);
@@ -60,6 +62,40 @@ function useComEdPricing() {
   return { ...state, loading, refresh };
 }
 
+function getTrendArrow(trend) {
+  if (trend === 'down') return '↓ ';
+  if (trend === 'up') return '↑ ';
+  return '';
+}
+
+function getCurrentPriceClass(trend) {
+  if (trend === 'down') return 'text-green-400';
+  if (trend === 'up') return 'text-red-400';
+  return 'text-slate-400';
+}
+
+function getHourlyAvgClass(hourlyAvg) {
+  if (hourlyAvg == null) {
+    return { className: 'text-slate-400', isFlashing: false };
+  }
+  if (hourlyAvg < 0) {
+    return { className: 'text-green-400', isFlashing: true };
+  }
+  if (hourlyAvg < 2) {
+    return { className: 'text-green-400', isFlashing: false };
+  }
+  if (hourlyAvg <= FIXED_RATE_CENTS) {
+    return { className: 'text-slate-100', isFlashing: false };
+  }
+  if (hourlyAvg <= 10) {
+    return { className: 'text-amber-400', isFlashing: false };
+  }
+  if (hourlyAvg <= 20) {
+    return { className: 'text-red-400', isFlashing: false };
+  }
+  return { className: 'text-red-400', isFlashing: true };
+}
+
 export default function App() {
   // Hook the SSE stream for the lifetime of the app
   useSSE();
@@ -79,6 +115,9 @@ export default function App() {
   const isTesla = configLoaded && teslaEnabled;
 
   const { currentPrice, hourlyAvg, trend, loading: comedLoading, refresh: refreshComed } = useComEdPricing();
+  const currentPriceClass = getCurrentPriceClass(trend);
+  const { className: hourlyAvgClass, isFlashing: hourlyAvgFlashing } = getHourlyAvgClass(hourlyAvg);
+  const trendArrow = getTrendArrow(trend);
 
   const tabs = [
     { id: 'queues', label: 'Queues' },
@@ -123,6 +162,7 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col">
+      <style>{'@keyframes blink { 0%, 100% { opacity: 1; } 50% { opacity: 0; } }'}</style>
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="border-b border-slate-800 px-6 py-4 flex items-center gap-3">
         <span className="text-xl">🎬</span>
@@ -130,12 +170,15 @@ export default function App() {
         <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
           H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
           <span className="text-slate-600">·</span>
-          <span className="text-slate-100">
-            {currentPrice != null ? `${currentPrice.toFixed(1)}¢` : '—'}
+          <span className={currentPrice != null ? currentPriceClass : 'text-slate-400'}>
+            {currentPrice != null ? `${trendArrow}${currentPrice.toFixed(1)}¢` : '—'}
           </span>
-          <span className={trend === 'down' ? 'text-green-400' : trend === 'up' ? 'text-red-400' : 'text-slate-400'}>
+          <span
+            className={hourlyAvgClass}
+            style={hourlyAvgFlashing ? { animation: 'blink 1s step-start infinite' } : undefined}
+          >
             {hourlyAvg != null
-              ? `${trend === 'down' ? '↓ ' : trend === 'up' ? '↑ ' : ''}${hourlyAvg.toFixed(1)}¢`
+              ? `${trendArrow}${hourlyAvg.toFixed(1)}¢`
               : '—'}
           </span>
           <button
