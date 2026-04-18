@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSSE } from './hooks/useSSE.js';
 import { DropZone } from './components/DropZone.jsx';
 import { FileBrowser } from './components/FileBrowser.jsx';
@@ -17,8 +17,10 @@ import { useAppConfigStore } from './store/appConfigStore.js';
 const FIXED_RATE_CENTS = 7.8;
 
 function useComEdPricing() {
-  const [state, setState] = useState({ currentPrice: null, hourlyAvg: null, trend: 'neutral' });
+  const [state, setState] = useState({ currentPrice: null, hourlyAvg: null, priceTrend: 'same', avgTrend: 'same' });
   const [loading, setLoading] = useState(false);
+  const prevFiveMinPrice = useRef(null);
+  const prevHourlyAvg = useRef(null);
 
   const refresh = useCallback(async () => {
     setLoading(true);
@@ -31,27 +33,34 @@ function useComEdPricing() {
 
       const currentPrice = parseFloat(feedData[0]?.price);
       const hourlyAvg    = parseFloat(avgData[0]?.price);
+      const nextCurrentPrice = isNaN(currentPrice) ? null : currentPrice;
+      const nextHourlyAvg = isNaN(hourlyAvg) ? null : hourlyAvg;
 
-      let trend = 'neutral';
-      const readings = feedData.slice(0, 12).map(r => parseFloat(r.price));
-      if (readings.length >= 2) {
-        const older  = readings.slice(6, 12);
-        const recent = readings.slice(0, 6);
-        if (older.length && recent.length) {
-          const avgOlder  = older.reduce((s, v) => s + v, 0) / older.length;
-          const avgRecent = recent.reduce((s, v) => s + v, 0) / recent.length;
-          if      (avgRecent < avgOlder) trend = 'down';
-          else if (avgRecent > avgOlder) trend = 'up';
-        }
+      let priceTrend = 'same';
+      if (nextCurrentPrice != null && prevFiveMinPrice.current != null) {
+        if (nextCurrentPrice > prevFiveMinPrice.current) priceTrend = 'up';
+        else if (nextCurrentPrice < prevFiveMinPrice.current) priceTrend = 'down';
       }
 
+      let avgTrend = 'same';
+      if (nextHourlyAvg != null && prevHourlyAvg.current != null) {
+        if (nextHourlyAvg > prevHourlyAvg.current) avgTrend = 'up';
+        else if (nextHourlyAvg < prevHourlyAvg.current) avgTrend = 'down';
+      }
+
+      prevFiveMinPrice.current = nextCurrentPrice;
+      prevHourlyAvg.current = nextHourlyAvg;
+
       setState({
-        currentPrice: isNaN(currentPrice) ? null : currentPrice,
-        hourlyAvg:    isNaN(hourlyAvg)    ? null : hourlyAvg,
-        trend,
+        currentPrice: nextCurrentPrice,
+        hourlyAvg: nextHourlyAvg,
+        priceTrend,
+        avgTrend,
       });
     } catch {
-      setState({ currentPrice: null, hourlyAvg: null, trend: 'neutral' });
+      prevFiveMinPrice.current = null;
+      prevHourlyAvg.current = null;
+      setState({ currentPrice: null, hourlyAvg: null, priceTrend: 'same', avgTrend: 'same' });
     } finally {
       setLoading(false);
     }
@@ -62,16 +71,14 @@ function useComEdPricing() {
   return { ...state, loading, refresh };
 }
 
-function getTrendArrow(trend) {
-  if (trend === 'down') return '↓ ';
-  if (trend === 'up') return '↑ ';
-  return '';
-}
-
-function getCurrentPriceClass(trend) {
-  if (trend === 'down') return 'text-green-400';
-  if (trend === 'up') return 'text-red-400';
-  return 'text-slate-400';
+function getTrendProps(trend, fallbackArrow) {
+  if (trend === 'down') {
+    return { arrow: '↓', className: 'text-green-400' };
+  }
+  if (trend === 'up') {
+    return { arrow: '↑', className: 'text-red-400' };
+  }
+  return { arrow: fallbackArrow, className: 'text-slate-100' };
 }
 
 function getHourlyAvgClass(hourlyAvg) {
@@ -114,10 +121,20 @@ export default function App() {
   const isCoop = configLoaded && coopEnabled;
   const isTesla = configLoaded && teslaEnabled;
 
-  const { currentPrice, hourlyAvg, trend, loading: comedLoading, refresh: refreshComed } = useComEdPricing();
-  const currentPriceClass = getCurrentPriceClass(trend);
+  const { currentPrice, hourlyAvg, priceTrend, avgTrend, loading: comedLoading, refresh: refreshComed } = useComEdPricing();
+  const lastPriceArrow = useRef('↑');
+  const lastAvgArrow = useRef('↑');
+  if (priceTrend !== 'same') {
+    lastPriceArrow.current = priceTrend === 'up' ? '↑' : '↓';
+  }
+  if (avgTrend !== 'same') {
+    lastAvgArrow.current = avgTrend === 'up' ? '↑' : '↓';
+  }
+
+  const priceTrendProps = getTrendProps(priceTrend, lastPriceArrow.current);
+  const avgTrendProps = getTrendProps(avgTrend, lastAvgArrow.current);
+  const { className: currentPriceClass, isFlashing: currentPriceFlashing } = getHourlyAvgClass(currentPrice);
   const { className: hourlyAvgClass, isFlashing: hourlyAvgFlashing } = getHourlyAvgClass(hourlyAvg);
-  const trendArrow = getTrendArrow(trend);
 
   const tabs = [
     { id: 'queues', label: 'Queues' },
@@ -170,16 +187,26 @@ export default function App() {
         <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
           H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
           <span className="text-slate-600">·</span>
-          <span className={currentPrice != null ? currentPriceClass : 'text-slate-400'}>
-            {currentPrice != null ? `${trendArrow}${currentPrice.toFixed(1)}¢` : '—'}
+          <span className={`${priceTrendProps.className} text-base`} style={{ fontSize: '1.2em' }}>
+            {priceTrendProps.arrow}
           </span>
           <span
-            className={hourlyAvgClass}
+            className={`${currentPriceClass} text-base`}
+            style={{
+              fontSize: '1.2em',
+              ...(currentPriceFlashing ? { animation: 'blink 1s step-start infinite' } : {}),
+            }}
+          >
+            {currentPrice != null ? `${currentPrice.toFixed(1)}¢` : '—'}
+          </span>
+          <span className={`${avgTrendProps.className} text-base`} style={{ fontSize: '1.2em' }}>
+            {avgTrendProps.arrow}
+          </span>
+          <span
+            className={`${hourlyAvgClass} text-base`}
             style={hourlyAvgFlashing ? { animation: 'blink 1s step-start infinite' } : undefined}
           >
-            {hourlyAvg != null
-              ? `${trendArrow}${hourlyAvg.toFixed(1)}¢`
-              : '—'}
+            {hourlyAvg != null ? `${hourlyAvg.toFixed(1)}¢` : '—'}
           </span>
           <button
             onClick={refreshComed}
