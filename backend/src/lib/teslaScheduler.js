@@ -2,9 +2,11 @@ import cron from 'node-cron';
 import db from '../db/client.js';
 import config from '../config.js';
 import { computePlan, pushPlan } from './chargeScheduler.js';
+import { runMorningPoll } from './morningPoller.js';
 import { checkForOverride } from './overrideDetector.js';
 
 let scheduledTask = null;
+let morningTask = null;
 let running = false;
 
 function getSettings() {
@@ -57,10 +59,11 @@ async function runScheduler() {
 }
 
 export function startTeslaScheduler() {
-  if (!config.teslaEnabled || scheduledTask) return;
+  if (!config.teslaEnabled || scheduledTask || morningTask) return;
 
   const settings = getSettings();
   const expression = settings?.eval_cron ?? '45 21 * * *';
+  const morningExpression = settings?.morning_cron ?? '30 9 * * *';
 
   scheduledTask = cron.schedule(expression, () => {
     runScheduler().catch((error) => {
@@ -71,11 +74,27 @@ export function startTeslaScheduler() {
   });
 
   console.info(`[teslaScheduler] scheduled with cron "${expression}"`);
+
+  morningTask = cron.schedule(morningExpression, () => {
+    runMorningPoll().catch((error) => {
+      console.error('[teslaScheduler] unhandled morning poll error', error);
+    });
+  }, {
+    timezone: 'America/Chicago',
+  });
+
+  console.info(`[teslaScheduler] morning poll scheduled with cron "${morningExpression}"`);
 }
 
 export function stopTeslaScheduler() {
-  if (!scheduledTask) return;
-  scheduledTask.stop();
-  scheduledTask.destroy();
-  scheduledTask = null;
+  if (scheduledTask) {
+    scheduledTask.stop();
+    scheduledTask.destroy();
+    scheduledTask = null;
+  }
+  if (morningTask) {
+    morningTask.stop();
+    morningTask.destroy();
+    morningTask = null;
+  }
 }

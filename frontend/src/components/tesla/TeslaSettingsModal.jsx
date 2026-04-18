@@ -9,6 +9,18 @@ import {
 } from '../../api/tesla.js';
 import { useTeslaStore } from '../../store/teslaStore.js';
 
+function cronToTime(expression) {
+  const match = String(expression ?? '').trim().match(/^(\d{1,2})\s+(\d{1,2})\s+\*\s+\*\s+\*$/);
+  if (!match) return '09:30';
+  const [, minute, hour] = match;
+  return `${String(Number(hour)).padStart(2, '0')}:${String(Number(minute)).padStart(2, '0')}`;
+}
+
+function timeToCron(value) {
+  const [hour = '09', minute = '30'] = String(value ?? '09:30').split(':');
+  return `${Number(minute)} ${Number(hour)} * * *`;
+}
+
 function CredentialStatus({ status }) {
   let text = 'Checking token…';
   let cls = 'text-slate-400';
@@ -88,6 +100,9 @@ export function TeslaSettingsModal({ onClose }) {
       winter_temp_low_f: settings?.winter_temp_low_f ?? '',
       winter_min_amps_mid: settings?.winter_min_amps_mid ?? '',
       winter_min_amps_cold: settings?.winter_min_amps_cold ?? '',
+      morning_poll_time: cronToTime(settings?.morning_cron),
+      min_sessions_for_capacity: settings?.min_sessions_for_capacity ?? '',
+      capacity_update_interval: settings?.capacity_update_interval ?? '',
     });
   }, [settings]);
 
@@ -142,8 +157,11 @@ export function TeslaSettingsModal({ onClose }) {
 
   async function handleSettingsBlur(field) {
     const value = settingsDraft[field];
+    const patch = field === 'morning_poll_time'
+      ? { morning_cron: timeToCron(value) }
+      : { [field]: value };
     try {
-      const updated = await patchSettings({ [field]: value });
+      const updated = await patchSettings(patch);
       setSettings(updated);
       setMessage('Scheduler settings saved.');
     } catch (err) {
@@ -322,6 +340,48 @@ export function TeslaSettingsModal({ onClose }) {
                   />
                 </label>
               ))}
+            </div>
+          </section>
+
+          <section className="mt-6 rounded-2xl border border-slate-800 bg-slate-950/40 p-5">
+            <h3 className="text-lg font-semibold text-slate-100">Session Logging</h3>
+            <div className="mt-4 grid gap-4 md:grid-cols-2">
+              <label className="grid gap-2 text-sm text-slate-300">
+                <span>Morning poll time</span>
+                <input
+                  type="time"
+                  value={settingsDraft.morning_poll_time ?? '09:30'}
+                  onChange={(event) => setSettingsDraft(state => ({ ...state, morning_poll_time: event.target.value }))}
+                  onBlur={() => handleSettingsBlur('morning_poll_time')}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-indigo-500"
+                />
+              </label>
+
+              <label className="grid gap-2 text-sm text-slate-300">
+                <span>Min sessions for capacity update</span>
+                <input
+                  type="number"
+                  min="3"
+                  step="1"
+                  value={settingsDraft.min_sessions_for_capacity ?? ''}
+                  onChange={(event) => setSettingsDraft(state => ({ ...state, min_sessions_for_capacity: event.target.value }))}
+                  onBlur={() => handleSettingsBlur('min_sessions_for_capacity')}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-indigo-500"
+                />
+              </label>
+
+              <label className="grid gap-2 text-sm text-slate-300">
+                <span>Recompute capacity every N sessions</span>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={settingsDraft.capacity_update_interval ?? ''}
+                  onChange={(event) => setSettingsDraft(state => ({ ...state, capacity_update_interval: event.target.value }))}
+                  onBlur={() => handleSettingsBlur('capacity_update_interval')}
+                  className="rounded-xl border border-slate-700 bg-slate-900 px-4 py-3 text-slate-100 outline-none focus:border-indigo-500"
+                />
+              </label>
             </div>
           </section>
 

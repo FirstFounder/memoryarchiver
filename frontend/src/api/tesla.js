@@ -79,3 +79,17 @@ export async function patchSettings(patch) {
     body: JSON.stringify(patch),
   });
 }
+
+export async function getSessions(vin, { limit = 10, offset = 0 } = {}) {
+  return apiFetch(`/api/tesla/sessions/${encodeURIComponent(vin)}?limit=${limit}&offset=${offset}`);
+}
+
+export async function triggerMorningPoll(vin) {
+  return apiFetch(`/api/tesla/sessions/${encodeURIComponent(vin)}/morning-poll`, {
+    method: 'POST',
+  });
+}
+
+export async function getCapacity(vin) {
+  return apiFetch(`/api/tesla/capacity/${encodeURIComponent(vin)}`);
+}

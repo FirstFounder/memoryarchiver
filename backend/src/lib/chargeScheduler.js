@@ -1,7 +1,7 @@
 import config from '../config.js';
 import db from '../db/client.js';
 import { fetchDayAheadPrices, filterOvernightPrices } from './coMedPrices.js';
-import { addChargeSchedule, setChargingAmps } from './teslaCommands.js';
+import { addChargeSchedule, setChargingAmps, setChargeLimit } from './teslaCommands.js';
 import { fetchVehicleData, isVehicleSleepError } from './teslaFleet.js';
 import { fetchOvernightLow } from './weatherFetch.js';
 
@@ -468,6 +468,7 @@ export async function pushPlan(plan, vin) {
       endMinute: end.minute,
     });
     await setChargingAmps(vin, plan.charge_amps);
+    await setChargeLimit(vin, plan.charge_limit_at_set_time);
 
     return updatePlan(plan.id, {
       scheduled_start_pushed: plan.window_start,

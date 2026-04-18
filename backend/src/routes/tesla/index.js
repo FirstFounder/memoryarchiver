@@ -1,3 +1,4 @@
+import cron from 'node-cron';
 import config from '../../config.js';
 import db from '../../db/client.js';
 import {
@@ -75,6 +76,15 @@ function serializePlan(row) {
     ...row,
     day_ahead_prices_json: row.day_ahead_prices_json ? JSON.parse(row.day_ahead_prices_json) : [],
     strategy_comparison_json: row.strategy_comparison_json ? JSON.parse(row.strategy_comparison_json) : [],
+  };
+}
+
+function serializeSession(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    actual_prices_json: row.actual_prices_json ? JSON.parse(row.actual_prices_json) : null,
+    day_ahead_prices_json: row.day_ahead_prices_json ? JSON.parse(row.day_ahead_prices_json) : null,
   };
 }
 
@@ -344,6 +354,44 @@ export default async function teslaRoutes(fastify) {
     return reply.send(rows.map(serializePlan));
   });
 
+  fastify.get('/api/tesla/sessions/:vin', async (req, reply) => {
+    const { vin } = req.params;
+    const vehicle = getVehicle(vin);
+    if (!vehicle) {
+      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
+    }
+
+    const limit = Math.min(Math.max(Number(req.query.limit ?? 20) || 20, 1), 100);
+    const offset = Math.max(Number(req.query.offset ?? 0) || 0, 0);
+
+    const rows = db.prepare(`
+      SELECT
+        s.*,
+        p.selected_strategy,
+        p.window_start,
+        p.window_end,
+        p.charge_amps,
+        p.price_window_avg_cents,
+        p.day_ahead_prices_json
+      FROM tesla_sessions s
+      LEFT JOIN tesla_plans p ON p.id = s.plan_id
+      WHERE s.vin = ?
+      ORDER BY s.session_start DESC, s.id DESC
+      LIMIT ? OFFSET ?
+    `).all(vin, limit, offset);
+
+    const total = db.prepare(`
+      SELECT COUNT(*) AS n FROM tesla_sessions WHERE vin = ?
+    `).get(vin)?.n ?? 0;
+
+    return reply.send({
+      sessions: rows.map(serializeSession),
+      total,
+      limit,
+      offset,
+    });
+  });
+
   fastify.post('/api/tesla/plan/:vin/recompute', async (req, reply) => {
     const { vin } = req.params;
     const vehicle = getVehicle(vin);
@@ -367,6 +415,24 @@ export default async function teslaRoutes(fastify) {
     return reply.send(serializePlan(pushed));
   });
 
+  fastify.post('/api/tesla/sessions/:vin/morning-poll', async (req, reply) => {
+    const { vin } = req.params;
+    const vehicle = getVehicle(vin);
+    if (!vehicle) {
+      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
+    }
+    if (vehicle.mode !== 'active') {
+      return reply.code(400).send({ error: 'not_active', message: 'Vehicle is not in active mode' });
+    }
+
+    const { runMorningPollForVin } = await import('../../lib/morningPoller.js');
+    const result = await runMorningPollForVin(vin);
+    return reply.send({
+      ...result,
+      session: serializeSession(result.session),
+    });
+  });
+
   fastify.post('/api/tesla/plan/:vin/skip', async (req, reply) => {
     const { vin } = req.params;
     const vehicle = getVehicle(vin);
@@ -386,6 +452,18 @@ export default async function teslaRoutes(fastify) {
     return reply.send(getTeslaSettings());
   });
 
+  fastify.get('/api/tesla/capacity/:vin', async (req, reply) => {
+    const { vin } = req.params;
+    const vehicle = getVehicle(vin);
+    if (!vehicle) {
+      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
+    }
+
+    const { derivePackCapacity } = await import('../../lib/packCapacity.js');
+    const result = derivePackCapacity(vin);
+    return reply.send(result ?? { capacityKwh: null, sessionCount: 0 });
+  });
+
   fastify.patch('/api/tesla/settings', async (req, reply) => {
     const settings = getTeslaSettings();
     const patch = req.body ?? {};
@@ -398,6 +476,8 @@ export default async function teslaRoutes(fastify) {
       winter_min_amps_cold: toInteger,
       soc_drop_reset_pct: toInteger,
       early_window_open_hour: toInteger,
+      min_sessions_for_capacity: toInteger,
+      capacity_update_interval: toInteger,
     };
 
     const updates = [];
@@ -414,8 +494,19 @@ export default async function teslaRoutes(fastify) {
     }
 
     if (patch.eval_cron !== undefined) {
+      if (!cron.validate(String(patch.eval_cron))) {
+        return reply.code(400).send({ error: 'invalid_setting', message: 'eval_cron must be a valid cron expression' });
+      }
       updates.push('eval_cron = ?');
       values.push(String(patch.eval_cron));
+    }
+
+    if (patch.morning_cron !== undefined) {
+      if (!cron.validate(String(patch.morning_cron))) {
+        return reply.code(400).send({ error: 'invalid_setting', message: 'morning_cron must be a valid cron expression' });
+      }
+      updates.push('morning_cron = ?');
+      values.push(String(patch.morning_cron));
     }
 
     if (!updates.length) {

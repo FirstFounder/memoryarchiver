@@ -17,6 +17,7 @@ import {
   recomputePlan,
   skipPlan,
 } from '../../api/tesla.js';
+import { SessionHistoryTable } from './SessionHistoryTable.jsx';
 import { useTeslaStore } from '../../store/teslaStore.js';
 
 const MODE_META = {
@@ -346,6 +347,7 @@ function VehicleCard({ vehicle }) {
 
               <StrategyTable plan={plan} />
               <PlanChart plan={plan} />
+              <SessionHistoryTable vin={vehicle.vin} />
 
               <div className="flex flex-wrap gap-3">
                 <button

@@ -25,3 +25,15 @@ export async function setChargingAmps(vin, amps) {
     }),
   });
 }
+
+export async function setChargeLimit(vin, pct) {
+  return fleetFetch(`/api/1/vehicles/${vin}/command/set_charge_limit`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({
+      percent: Math.round(pct),
+    }),
+  });
+}
