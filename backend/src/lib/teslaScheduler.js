@@ -89,12 +89,10 @@ export function startTeslaScheduler() {
 export function stopTeslaScheduler() {
   if (scheduledTask) {
     scheduledTask.stop();
-    scheduledTask.destroy();
     scheduledTask = null;
   }
   if (morningTask) {
     morningTask.stop();
-    morningTask.destroy();
     morningTask = null;
   }
 }
