@@ -20,6 +20,7 @@ import coopRoutes from './routes/coop/index.js';
 import { startCoopScheduler, stopCoopScheduler } from './lib/coopScheduler.js';
 import teslaRoutes from './routes/tesla/index.js';
 import { startTeslaScheduler, stopTeslaScheduler } from './lib/teslaScheduler.js';
+import caRoutes from './routes/ca/index.js';
 
 const fastify = Fastify({
   logger: {
@@ -87,6 +88,11 @@ if (config.coopEnabled) {
 if (config.teslaEnabled) {
   await fastify.register(teslaRoutes);
   fastify.log.info('Tesla enabled — Tesla routes registered');
+}
+
+if (config.caEnabled) {
+  await fastify.register(caRoutes);
+  fastify.log.info('CA enabled — CA routes registered');
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────

@@ -74,6 +74,9 @@ const config = Object.freeze({
   teslaFleetApiBase: process.env.TESLA_FLEET_API_BASE ?? 'https://fleet-api.prd.na.vn.cloud.tesla.com',
   teslaAuthBase: process.env.TESLA_AUTH_BASE ?? 'https://fleet-auth.prd.vn.cloud.tesla.com',
   teslaPrivateKeyPath: process.env.TESLA_PRIVATE_KEY_PATH ?? null,
+  caEnabled: process.env.CA_ENABLED === 'true',
+  caIssuedDir: process.env.CA_ISSUED_DIR
+    ?? '/var/services/homes/philander/rennert-ca/data/issued',
   weatherLat: parseFloat(process.env.WEATHER_LAT ?? '41.8827'),
   weatherLon: parseFloat(process.env.WEATHER_LON ?? '-87.7538'),
 

@@ -7,6 +7,7 @@ import { JobForm } from './components/JobForm.jsx';
 import { JobQueue } from './components/JobQueue.jsx';
 import { SyncQueue } from './components/SyncQueue.jsx';
 import { HubPanel } from './components/hub/HubPanel.jsx';
+import { CaPanel } from './components/ca/CaPanel.jsx';
 import { CoopPanel } from './components/coop/CoopPanel.jsx';
 import { TeslaPanel } from './components/tesla/TeslaPanel.jsx';
 import { GaragePanel } from './components/tesla/GaragePanel.jsx';
@@ -113,6 +114,7 @@ export default function App() {
   const configLoaded = useAppConfigStore(s => s.loaded);
   const coopEnabled  = useAppConfigStore(s => s.coopEnabled);
   const teslaEnabled = useAppConfigStore(s => s.teslaEnabled);
+  const caEnabled    = useAppConfigStore(s => s.caEnabled);
   useEffect(() => {
     getAppConfig().then(setConfig).catch(() => { /* retain defaults on error */ });
   }, []);
@@ -120,6 +122,7 @@ export default function App() {
   const isHub  = configLoaded && deviceRole === 'hub';
   const isCoop = configLoaded && coopEnabled;
   const isTesla = configLoaded && teslaEnabled;
+  const isCa = configLoaded && caEnabled;
 
   const { currentPrice, hourlyAvg, priceTrend, avgTrend, loading: comedLoading, refresh: refreshComed } = useComEdPricing();
   const lastPriceArrow = useRef('↑');
@@ -139,6 +142,7 @@ export default function App() {
   const tabs = [
     { id: 'queues', label: 'Queues' },
     ...(isHub  ? [{ id: 'hub',  label: 'Hub'  }] : []),
+    ...(isCa ? [{ id: 'ca', label: 'CA' }] : []),
     ...(isCoop ? [{ id: 'coop', label: 'Coop' }] : []),
     ...(isTesla ? [{ id: 'garage', label: 'Garage' }, { id: 'tesla', label: 'Tesla' }] : []),
   ];
@@ -292,6 +296,10 @@ export default function App() {
           {/* Hub tab */}
           {isHub && activeTab === 'hub' && (
             <HubPanel />
+          )}
+
+          {isCa && activeTab === 'ca' && (
+            <CaPanel />
           )}
 
           {/* Coop tab */}

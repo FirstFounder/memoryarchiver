@@ -10,6 +10,7 @@ export default async function appConfigRoute(fastify) {
       nfsDestinations: config.nfsDestinations,
       coopEnabled:     config.coopEnabled,
       teslaEnabled:    config.teslaEnabled,
+      caEnabled:       config.caEnabled,
       hubUrl:          config.hubUrl,
     });
   });

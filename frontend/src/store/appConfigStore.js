@@ -12,6 +12,7 @@ export const useAppConfigStore = create((set) => ({
   nfsDestinations: [],
   coopEnabled:     false,
   teslaEnabled:    false,
+  caEnabled:       false,
   hubUrl:          '',
   loaded:          false,
 
