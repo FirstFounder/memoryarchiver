@@ -249,7 +249,7 @@ async function runSyncJob(dest, jobId) {
         emitProgress(dest, jobId, { status: 'running', phase: 'disk_sleep', progress: null });
         try {
           await execAsync(
-            `ssh -i "${dest.ssh_key_path}" -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o ConnectTimeout=15` +
+            `ssh -i "${dest.ssh_key_path}" -o StrictHostKeyChecking=no -o IdentitiesOnly=yes -o ConnectTimeout=15 -o PubkeyAcceptedKeyTypes=+ssh-rsa` +
             ` root@${dest.ip} "hdparm -Y /dev/sda && hdparm -Y /dev/sdb"`,
           );
         } catch (sshErr) {
