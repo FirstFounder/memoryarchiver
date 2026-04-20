@@ -9,7 +9,11 @@ export function CameraCard({ camera, baseUrl = '', onLabelSaved }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(camera.label);
   const [saving, setSaving] = useState(false);
+  const [playing, setPlaying] = useState(false);
   const inputRef = useRef(null);
+  const streamUrl = camera.hlsUrl
+    ? new URL(camera.hlsUrl, baseUrl || window.location.origin).toString()
+    : null;
 
   // Focus input when editing starts
   useEffect(() => {
@@ -20,6 +24,10 @@ export function CameraCard({ camera, baseUrl = '', onLabelSaved }) {
   useEffect(() => {
     if (!editing) setDraft(camera.label);
   }, [camera.label, editing]);
+
+  useEffect(() => {
+    setPlaying(false);
+  }, [camera.live, streamUrl]);
 
   async function handleSave() {
     const trimmed = draft.trim();
@@ -50,20 +58,32 @@ export function CameraCard({ camera, baseUrl = '', onLabelSaved }) {
   // HLS lifecycle
   useEffect(() => {
     if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
-    if (!camera.live || !camera.hlsUrl || !videoRef.current) return;
+    if (!videoRef.current) return;
+
+    videoRef.current.pause();
+    videoRef.current.removeAttribute('src');
+    videoRef.current.load();
+
+    if (!camera.live || !streamUrl) return;
 
     if (Hls.isSupported()) {
       const hls = new Hls();
-      hls.loadSource(camera.hlsUrl);
+      hls.loadSource(streamUrl);
       hls.attachMedia(videoRef.current);
+      hls.on(Hls.Events.MANIFEST_PARSED, () => {
+        videoRef.current?.play().catch(() => {});
+      });
       hlsRef.current = hls;
     } else if (videoRef.current.canPlayType('application/vnd.apple.mpegurl')) {
       // Safari native HLS
-      videoRef.current.src = camera.hlsUrl;
+      videoRef.current.src = streamUrl;
+      videoRef.current.play().catch(() => {});
     }
 
-    return () => { if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; } };
-  }, [camera.live, camera.hlsUrl]);
+    return () => {
+      if (hlsRef.current) { hlsRef.current.destroy(); hlsRef.current = null; }
+    };
+  }, [camera.live, streamUrl]);
 
   return (
     <div className="bg-slate-800/60 border border-slate-700 rounded-xl p-4 flex flex-col gap-3">
@@ -119,13 +139,26 @@ export function CameraCard({ camera, baseUrl = '', onLabelSaved }) {
       </div>
 
       {/* Player */}
-      <video
-        ref={videoRef}
-        autoPlay
-        muted
-        playsInline
-        className="w-full rounded aspect-video bg-black"
-      />
+      <div className="relative w-full rounded aspect-video bg-black overflow-hidden">
+        <video
+          ref={videoRef}
+          autoPlay
+          muted
+          playsInline
+          onPlay={() => setPlaying(true)}
+          onPause={() => setPlaying(false)}
+          className="w-full h-full object-contain"
+        />
+        {camera.live && !playing && (
+          <button
+            onClick={() => videoRef.current?.play()}
+            className="absolute inset-0 flex items-center justify-center bg-black/40 hover:bg-black/30 transition-colors"
+            aria-label="Play stream"
+          >
+            <span className="text-white text-5xl">▶</span>
+          </button>
+        )}
+      </div>
 
       {/* Readers count — only when live and nonzero */}
       {camera.live && camera.readersCount > 0 && (

@@ -40,6 +40,31 @@ await fastify.register(cors, {
   methods: ['GET', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
 });
 
+// ── HLS proxy (hub role only) ─────────────────────────────────────────────────
+// Proxies mediamtx HLS playlists/segments through the app server so browsers
+// always fetch them from the app origin instead of the private LAN address.
+if (config.deviceRole === 'hub') {
+  fastify.get('/hls-proxy/*', async (req, reply) => {
+    const subpath = req.params['*'];
+    const upstream = `http://localhost:${config.mediamtxHlsPort}/${subpath}`;
+
+    try {
+      const upstreamRes = await fetch(upstream);
+      if (!upstreamRes.ok) {
+        return reply.code(upstreamRes.status).send();
+      }
+
+      const contentType = upstreamRes.headers.get('content-type') ?? 'application/octet-stream';
+      reply.header('Content-Type', contentType);
+      reply.header('Cache-Control', 'no-cache');
+
+      return reply.send(Buffer.from(await upstreamRes.arrayBuffer()));
+    } catch {
+      return reply.code(502).send();
+    }
+  });
+}
+
 // ── Multipart (file uploads) ──────────────────────────────────────────────────
 // 12 GB limit accommodates several minutes of ProRes or high-bitrate HEVC
 await fastify.register(multipart, {

@@ -42,7 +42,7 @@ export default async function camerasRoutes(fastify) {
           name: pathName,
           label: labelMap.get(pathName) ?? pathName.split('/').pop(),
           live,
-          hlsUrl: live ? `${config.cameraHlsBase}/${pathName}/index.m3u8` : null,
+          hlsUrl: live ? `/hls-proxy/${pathName}/index.m3u8` : null,
           readersCount: item?.readersNum ?? 0,
         };
       });
