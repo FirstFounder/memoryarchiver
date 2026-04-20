@@ -16,6 +16,7 @@ import { startWorker, stopWorker } from './worker/index.js';
 import { startSyncWorker, stopSyncWorker } from './worker/sync-worker.js';
 import { startHubWorker, stopHubWorker } from './worker/hub-worker.js';
 import hubRoutes from './routes/hub/index.js';
+import cameraProxyRoutes from './routes/hub/cameraProxy.js';
 import coopRoutes from './routes/coop/index.js';
 import { startCoopScheduler, stopCoopScheduler } from './lib/coopScheduler.js';
 import teslaRoutes from './routes/tesla/index.js';
@@ -40,29 +41,37 @@ await fastify.register(cors, {
   methods: ['GET', 'PATCH', 'POST', 'DELETE', 'OPTIONS'],
 });
 
-// ── HLS proxy (hub role only) ─────────────────────────────────────────────────
-// Proxies mediamtx HLS playlists/segments through the app server so browsers
-// always fetch them from the app origin instead of the private LAN address.
-if (config.deviceRole === 'hub') {
-  fastify.get('/hls-proxy/*', async (req, reply) => {
-    const subpath = req.params['*'];
-    const upstream = `http://localhost:${config.mediamtxHlsPort}/${subpath}`;
+// ── HLS proxy ─────────────────────────────────────────────────────────────────
+// Hub: proxies mediamtx HLS segments through the app server (localhost:mediamtxHlsPort).
+// Remote: proxies to hub's /hls-proxy endpoint so the browser stays on its own origin.
+{
+  const hlsUpstreamBase = config.deviceRole === 'hub'
+    ? `http://localhost:${config.mediamtxHlsPort}`
+    : config.hubUrl
+      ? `${config.hubUrl}/hls-proxy`
+      : null;
 
-    try {
-      const upstreamRes = await fetch(upstream);
-      if (!upstreamRes.ok) {
-        return reply.code(upstreamRes.status).send();
+  if (hlsUpstreamBase) {
+    fastify.get('/hls-proxy/*', async (req, reply) => {
+      const subpath = req.params['*'];
+      const upstream = `${hlsUpstreamBase}/${subpath}`;
+
+      try {
+        const upstreamRes = await fetch(upstream);
+        if (!upstreamRes.ok) {
+          return reply.code(upstreamRes.status).send();
+        }
+
+        const contentType = upstreamRes.headers.get('content-type') ?? 'application/octet-stream';
+        reply.header('Content-Type', contentType);
+        reply.header('Cache-Control', 'no-cache');
+
+        return reply.send(Buffer.from(await upstreamRes.arrayBuffer()));
+      } catch {
+        return reply.code(502).send();
       }
-
-      const contentType = upstreamRes.headers.get('content-type') ?? 'application/octet-stream';
-      reply.header('Content-Type', contentType);
-      reply.header('Cache-Control', 'no-cache');
-
-      return reply.send(Buffer.from(await upstreamRes.arrayBuffer()));
-    } catch {
-      return reply.code(502).send();
-    }
-  });
+    });
+  }
 }
 
 // ── Multipart (file uploads) ──────────────────────────────────────────────────
@@ -103,6 +112,12 @@ if (config.deviceRole === 'hub') {
   fastify.log.info('Device role: hub — hub routes registered');
 } else {
   fastify.log.info('Device role: remote');
+  // On remote nodes, proxy camera API calls to the hub server-side so the
+  // browser stays on its own origin (avoids CORS + mixed-content).
+  if (config.hubUrl) {
+    await fastify.register(cameraProxyRoutes);
+    fastify.log.info('Camera proxy routes registered (hubUrl: %s)', config.hubUrl);
+  }
 }
 
 if (config.coopEnabled) {
