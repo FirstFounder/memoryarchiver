@@ -1,16 +1,49 @@
 import fs from 'fs';
-import { chown, chmod } from 'fs/promises';
+import { chown, chmod, copyFile, unlink } from 'fs/promises';
+import path from 'path';
 import config from '../config.js';
 import { buildFadeFilters } from './fades.js';
 
 const NAS_ROOT    = '/volume1/RFA';
 const SQUAT_MOUNT = '/Volumes/iloRFA';
+const STAGING_DIR = '/volume1/RFA/scratch/squat-staging';
 
+// Translate an iolo path that is already under NAS_ROOT to squat's NFS mount.
 function toSquatPath(ioloPath) {
-  if (!ioloPath.startsWith(NAS_ROOT)) {
-    throw new Error(`Path not on RFA share: ${ioloPath}`);
-  }
   return SQUAT_MOUNT + ioloPath.slice(NAS_ROOT.length);
+}
+
+// Copy any source file not already on the RFA share into the staging directory.
+// Returns { ioloPath, squatPath, staged, stagedIoloPath? } for each input.
+async function stageSourceFiles(jobId, srcPaths) {
+  fs.mkdirSync(STAGING_DIR, { recursive: true });
+  try {
+    fs.chownSync(STAGING_DIR, config.outputUid, config.outputGid);
+  } catch (err) {
+    console.warn(`[squat] Could not set ownership on ${STAGING_DIR}:`, err.message);
+  }
+
+  return Promise.all(srcPaths.map(async (ioloPath) => {
+    if (ioloPath.startsWith(NAS_ROOT)) {
+      return { ioloPath, squatPath: toSquatPath(ioloPath), staged: false };
+    }
+    const basename = path.basename(ioloPath);
+    const stagedIoloPath = path.join(STAGING_DIR, `${jobId}-${basename}`);
+    await copyFile(ioloPath, stagedIoloPath);
+    return { ioloPath, squatPath: toSquatPath(stagedIoloPath), staged: true, stagedIoloPath };
+  }));
+}
+
+// Delete staged copies. Non-fatal — logs warnings on failure.
+async function cleanupStagedFiles(stagedEntries) {
+  for (const entry of stagedEntries) {
+    if (!entry.staged) continue;
+    try {
+      await unlink(entry.stagedIoloPath);
+    } catch (err) {
+      console.warn(`[squat] Could not delete staged file ${entry.stagedIoloPath}:`, err.message);
+    }
+  }
 }
 
 // Mirrors the audio bitrate table in pipeline.js — same resolution thresholds.
@@ -46,15 +79,16 @@ async function pollUntilDone(host, port) {
   throw new Error('Squat encode timed out after 2 hours');
 }
 
-export async function runSquatPipeline({ srcPaths, fileMeta, outputPath, longDesc, onProgress }) {
+export async function runSquatPipeline({ jobId, srcPaths, fileMeta, outputPath, longDesc, onProgress }) {
   const { squatHost: host, squatPort: port } = config;
 
-  // 1. Verify squat is reachable and NFS is mounted before dispatching
-  await checkHealth(host, port);
+  // 1. Stage any source files not already on the RFA share
+  const stagedEntries  = await stageSourceFiles(jobId, srcPaths);
+  const squatSrcPaths  = stagedEntries.map(e => e.squatPath);
+  const squatOutputPath = toSquatPath(outputPath); // output always on RFA
 
-  // 2. Translate paths from iolo-local to squat's NFS mount
-  const squatSrcPaths  = srcPaths.map(toSquatPath);
-  const squatOutputPath = toSquatPath(outputPath);
+  // 2. Verify squat is reachable and NFS is mounted before dispatching
+  await checkHealth(host, port);
 
   const N         = srcPaths.length;
   const maxHeight = Math.max(...fileMeta.map(m => m.height));
@@ -127,14 +161,18 @@ export async function runSquatPipeline({ srcPaths, fileMeta, outputPath, longDes
   // 5. Signal that the job is live on the remote encoder
   onProgress(0.01);
 
-  // 6. Poll until squat reports idle (done) or error
-  await pollUntilDone(host, port);
-
-  // 7. Fix ownership — squat writes as UID 501 (jrennert), unknown on iolo
   try {
-    await chmod(outputPath, 0o644);
-    await chown(outputPath, config.outputUid, config.outputGid);
-  } catch (err) {
-    console.warn(`[squat] Could not set ownership on ${outputPath}:`, err.message);
+    // 6. Poll until squat reports idle (done) or error
+    await pollUntilDone(host, port);
+
+    // 7. Fix ownership — squat writes as UID 501 (jrennert), unknown on iolo
+    try {
+      await chmod(outputPath, 0o644);
+      await chown(outputPath, config.outputUid, config.outputGid);
+    } catch (err) {
+      console.warn(`[squat] Could not set ownership on ${outputPath}:`, err.message);
+    }
+  } finally {
+    await cleanupStagedFiles(stagedEntries);
   }
 }

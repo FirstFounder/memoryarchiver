@@ -73,6 +73,7 @@ async function processJob(job) {
     const pipelineFn = config.squatEnabled ? runSquatPipeline : runPipeline;
 
     await pipelineFn({
+      jobId: job.id,
       srcPaths,
       fileMeta,
       outputPath: outputFile,
