@@ -6,6 +6,7 @@ import { FileList } from './components/FileList.jsx';
 import { JobForm } from './components/JobForm.jsx';
 import { JobQueue } from './components/JobQueue.jsx';
 import { SyncQueue } from './components/SyncQueue.jsx';
+import { EncoderSettings } from './components/EncoderSettings.jsx';
 import { HubPanel } from './components/hub/HubPanel.jsx';
 import { CaPanel } from './components/ca/CaPanel.jsx';
 import { CoopPanel } from './components/coop/CoopPanel.jsx';
@@ -290,6 +291,7 @@ export default function App() {
             <>
               <JobQueue />
               {!isHub && <SyncQueue />}
+              <EncoderSettings />
             </>
           )}
 

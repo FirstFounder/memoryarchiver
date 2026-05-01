@@ -82,6 +82,12 @@ const config = Object.freeze({
   weatherLat: parseFloat(process.env.WEATHER_LAT ?? '41.8827'),
   weatherLon: parseFloat(process.env.WEATHER_LON ?? '-87.7538'),
 
+  // Remote encoder (squat — Mac Mini M2 Pro)
+  squatEnabled:  process.env.SQUAT_ENABLED === 'true',
+  squatHost:     process.env.SQUAT_HOST ?? '192.168.106.16',
+  squatPort:     Number(process.env.SQUAT_PORT ?? 9662),
+  squatQuality:  Number(process.env.SQUAT_QUALITY ?? 68),  // VideoToolbox -q:v scale (0–100, higher=larger)
+
   // Static frontend build output — served by Fastify
   staticRoot: path.resolve(__dirname, '../../frontend/dist'),
 });

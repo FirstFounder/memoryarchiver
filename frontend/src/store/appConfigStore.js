@@ -14,6 +14,10 @@ export const useAppConfigStore = create((set) => ({
   teslaEnabled:    false,
   caEnabled:       false,
   hubUrl:          '',
+  squatEnabled:    false,
+  squatHost:       '192.168.106.16',
+  squatPort:       9662,
+  squatQuality:    68,
   loaded:          false,
 
   setConfig: (cfg) => set({ ...cfg, loaded: true }),

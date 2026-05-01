@@ -5,6 +5,7 @@ import emitter from '../lib/emitter.js';
 import config from '../config.js';
 import { probe } from './ffprobe.js';
 import { runPipeline } from './pipeline.js';
+import { runSquatPipeline } from './squatEncoder.js';
 
 const POLL_INTERVAL_MS = 3_000;
 let running = false;
@@ -69,7 +70,9 @@ async function processJob(job) {
     const srcPaths  = fileMeta.map(f => f.src_path);
     const outputFile = path.join(job.output_path, job.output_filename);
 
-    await runPipeline({
+    const pipelineFn = config.squatEnabled ? runSquatPipeline : runPipeline;
+
+    await pipelineFn({
       srcPaths,
       fileMeta,
       outputPath: outputFile,

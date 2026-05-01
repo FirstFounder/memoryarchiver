@@ -1,3 +1,7 @@
+// Files created 664, dirs 775 — required so squat's ffmpeg subprocess can read
+// source files over NFS (default umask 022 produces 644/755, which blocks group read).
+process.umask(0o002);
+
 import Fastify from 'fastify';
 import multipart from '@fastify/multipart';
 import staticPlugin from '@fastify/static';

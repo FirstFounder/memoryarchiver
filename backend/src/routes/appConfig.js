@@ -12,6 +12,10 @@ export default async function appConfigRoute(fastify) {
       teslaEnabled:    config.teslaEnabled,
       caEnabled:       config.caEnabled,
       hubUrl:          config.hubUrl,
+      squatEnabled:    config.squatEnabled,
+      squatHost:       config.squatHost,
+      squatPort:       config.squatPort,
+      squatQuality:    config.squatQuality,
     });
   });
 }

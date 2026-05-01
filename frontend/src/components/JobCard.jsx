@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { deleteJob } from '../api/jobs.js';
 import { useJobStore } from '../store/jobStore.js';
+import { useAppConfigStore } from '../store/appConfigStore.js';
 import { ProgressBar } from './ProgressBar.jsx';
 
 const STATUS_META = {
@@ -36,20 +37,41 @@ function formatEta(seconds) {
   return 'ETA < 1 min';
 }
 
+function formatElapsed(seconds) {
+  if (seconds < 0) seconds = 0;
+  const h = Math.floor(seconds / 3600);
+  const m = Math.floor((seconds % 3600) / 60);
+  const s = seconds % 60;
+  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
+  return `${m}:${String(s).padStart(2, '0')}`;
+}
+
 /**
  * Single row in the job queue panel.
  * Props:
  *   job — job object from the store
  */
 export function JobCard({ job }) {
-  const removeJob = useJobStore(s => s.removeJob);
+  const removeJob    = useJobStore(s => s.removeJob);
+  const squatEnabled = useAppConfigStore(s => s.squatEnabled);
   const [deleting, setDeleting]         = useState(false);
   const [forceConfirm, setForceConfirm] = useState(false);
   const [forceError, setForceError]     = useState(null);
+  const [elapsed, setElapsed]           = useState(0);
 
   const meta = STATUS_META[job.status] ?? STATUS_META.pending;
-  const isProcessing = job.status === 'processing';
-  const canDelete = !isProcessing;
+  const isProcessing  = job.status === 'processing';
+  const isRemote      = isProcessing && squatEnabled;
+  const canDelete     = !isProcessing;
+
+  // Live elapsed-time counter for remote (squat) jobs
+  useEffect(() => {
+    if (!isRemote) return;
+    const update = () => setElapsed(Math.floor(Date.now() / 1000) - (job.updated_at ?? 0));
+    update();
+    const id = setInterval(update, 1000);
+    return () => clearInterval(id);
+  }, [isRemote, job.updated_at]);
 
   async function handleDelete() {
     if (deleting) return;
@@ -100,7 +122,9 @@ export function JobCard({ job }) {
         {/* Status badge */}
         <div className="flex items-center gap-1.5 shrink-0">
           <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
-          <span className="text-xs text-slate-400">{meta.label}</span>
+          <span className="text-xs text-slate-400">
+            {isRemote ? 'Encoding on squat' : meta.label}
+          </span>
         </div>
       </div>
 
@@ -110,11 +134,17 @@ export function JobCard({ job }) {
           <ProgressBar value={job.progress ?? 0} color={meta.bar} />
           {job.status === 'processing' && (
             <p className="text-slate-500 text-xs mt-1 text-right">
-              {Math.round((job.progress ?? 0) * 100)}%
-              {eta != null && (
+              {isRemote ? (
+                formatElapsed(elapsed)
+              ) : (
                 <>
-                  <span className="mx-1.5 text-slate-700">·</span>
-                  {formatEta(eta)}
+                  {Math.round((job.progress ?? 0) * 100)}%
+                  {eta != null && (
+                    <>
+                      <span className="mx-1.5 text-slate-700">·</span>
+                      {formatEta(eta)}
+                    </>
+                  )}
                 </>
               )}
             </p>
