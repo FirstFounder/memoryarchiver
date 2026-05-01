@@ -30,6 +30,7 @@ function stageSourceFiles(jobId, srcPaths) {
     const basename = path.basename(ioloPath);
     const stagedIoloPath = path.join(STAGING_DIR, `${jobId}-${basename}`);
     fs.copyFileSync(ioloPath, stagedIoloPath);
+    fs.chmodSync(stagedIoloPath, 0o664); // copyFileSync preserves source perms; ensure NFS-readable
     return { ioloPath, squatPath: toSquatPath(stagedIoloPath), staged: true };
   });
 }
