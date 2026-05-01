@@ -1,7 +1,10 @@
 import fs from 'fs';
-import { chown, chmod } from 'fs/promises';
+import { exec } from 'child_process';
+import { promisify } from 'util';
 import path from 'path';
 import config from '../config.js';
+
+const execAsync = promisify(exec);
 import { buildFadeFilters } from './fades.js';
 
 const NAS_ROOT    = '/volume1/RFA';
@@ -167,8 +170,10 @@ export async function runSquatPipeline({ jobId, srcPaths, fileMeta, outputPath, 
 
     // 6. Fix ownership — squat writes as UID 501 (jrennert), unknown on iolo
     try {
-      await chmod(outputPath, 0o644);
-      await chown(outputPath, config.outputUid, config.outputGid);
+      console.log(`[squat] chowning ${outputPath} to ${config.outputUid}:${config.outputGid}`);
+      await execAsync(`chmod 644 "${outputPath}"`);
+      await execAsync(`chown ${config.outputUid}:${config.outputGid} "${outputPath}"`);
+      console.log(`[squat] chown complete`);
     } catch (err) {
       console.warn(`[squat] Could not set ownership on ${outputPath}:`, err.message);
     }

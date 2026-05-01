@@ -125,12 +125,15 @@ export async function runPipeline({ srcPaths, fileMeta, outputPath, longDesc, on
     proc.on('close', async code => {
       if (code === 0) {
         onProgress(1.0);
-        try {
-          await chmod(outputPath, 0o644);
-          await chown(outputPath, config.outputUid, config.outputGid);
-        } catch (err) {
-          // Non-fatal — file is encoded correctly; log and continue
-          console.warn(`[pipeline] Could not set ownership on ${outputPath}:`, err.message);
+        if (fs.existsSync(outputPath)) {
+          try {
+            await chmod(outputPath, 0o644);
+            await chown(outputPath, config.outputUid, config.outputGid);
+          } catch (err) {
+            console.warn(`[pipeline] Could not set ownership on ${outputPath}:`, err.message);
+          }
+        } else {
+          console.warn(`[pipeline] Output file not found after encode: ${outputPath}`);
         }
         resolve();
       } else {
