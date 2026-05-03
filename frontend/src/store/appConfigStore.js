@@ -18,6 +18,7 @@ export const useAppConfigStore = create((set) => ({
   squatHost:       '192.168.106.16',
   squatPort:       9662,
   squatQuality:    68,
+  audioEnabled:    false,
   loaded:          false,
 
   setConfig: (cfg) => set({ ...cfg, loaded: true }),

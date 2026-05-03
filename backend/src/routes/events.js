@@ -40,17 +40,23 @@ export default async function eventsRoute(fastify) {
       res.write(`event: hub-sync\ndata: ${JSON.stringify(payload)}\n\n`);
     };
 
-    emitter.on('job:update',      onJobUpdate);
-    emitter.on('sync:update',     onSyncUpdate);
-    emitter.on('hub-sync:update', onHubSyncUpdate);
+    const onAudioTranscript = (payload) => {
+      res.write(`event: audio-transcript\ndata: ${JSON.stringify(payload)}\n\n`);
+    };
+
+    emitter.on('job:update',        onJobUpdate);
+    emitter.on('sync:update',       onSyncUpdate);
+    emitter.on('hub-sync:update',   onHubSyncUpdate);
+    emitter.on('audio-transcript',  onAudioTranscript);
 
     const heartbeat = setInterval(() => res.write(': ping\n\n'), 20_000);
 
     const cleanup = () => {
       clearInterval(heartbeat);
-      emitter.off('job:update',      onJobUpdate);
-      emitter.off('sync:update',     onSyncUpdate);
-      emitter.off('hub-sync:update', onHubSyncUpdate);
+      emitter.off('job:update',        onJobUpdate);
+      emitter.off('sync:update',       onSyncUpdate);
+      emitter.off('hub-sync:update',   onHubSyncUpdate);
+      emitter.off('audio-transcript',  onAudioTranscript);
     };
 
     req.raw.on('close',   cleanup);

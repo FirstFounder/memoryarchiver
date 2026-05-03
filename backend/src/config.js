@@ -88,6 +88,11 @@ const config = Object.freeze({
   squatPort:     Number(process.env.SQUAT_PORT ?? 9662),
   squatQuality:  Number(process.env.SQUAT_QUALITY ?? 68),  // VideoToolbox -q:v scale (0–100, higher=larger)
 
+  // Audio transcription (iolo only; squat reuses squatHost/squatPort above)
+  audioEnabled:  process.env.AUDIO_ENABLED === 'true',
+  audioRawDir:   process.env.AUDIO_RAW_DIR  ?? '/volume1/RFA/Audio/raw',
+  audioMetaDir:  process.env.AUDIO_META_DIR ?? '/volume1/RFA/Audio/meta',
+
   // Static frontend build output — served by Fastify
   staticRoot: path.resolve(__dirname, '../../frontend/dist'),
 });

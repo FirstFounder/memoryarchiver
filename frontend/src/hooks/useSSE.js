@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react';
 import { useJobStore } from '../store/jobStore.js';
 import { useSyncStore } from '../store/syncStore.js';
 import { useHubStore } from '../store/hubStore.js';
+import { useAudioStore } from '../store/audioStore.js';
 import { getSyncJobs } from '../api/sync.js';
 
 const BASE_DELAY = 1_000;
@@ -25,6 +26,7 @@ export function useSSE() {
   const upsertSyncJob   = useSyncStore(s => s.upsertSyncJob);
   const setSyncJobs     = useSyncStore(s => s.setSyncJobs);
   const upsertLiveState = useHubStore(s => s.upsertLiveState);
+  const upsertAudioFile = useAudioStore(s => s.upsertFile);
   const delay           = useRef(BASE_DELAY);
   const esRef           = useRef(null);
 
@@ -65,6 +67,10 @@ export function useSSE() {
         } catch { /* ignore */ }
       });
 
+      es.addEventListener('audio-transcript', (e) => {
+        try { upsertAudioFile(JSON.parse(e.data)); } catch { /* ignore */ }
+      });
+
       es.onerror = () => {
         es.close();
         if (cancelled) return;
@@ -78,5 +84,5 @@ export function useSSE() {
       cancelled = true;
       esRef.current?.close();
     };
-  }, [upsertJob, upsertSyncJob, setSyncJobs, upsertLiveState]);
+  }, [upsertJob, upsertSyncJob, setSyncJobs, upsertLiveState, upsertAudioFile]);
 }

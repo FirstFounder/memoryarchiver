@@ -16,6 +16,7 @@ export default async function appConfigRoute(fastify) {
       squatHost:       config.squatHost,
       squatPort:       config.squatPort,
       squatQuality:    config.squatQuality,
+      audioEnabled:    config.audioEnabled,
     });
   });
 }

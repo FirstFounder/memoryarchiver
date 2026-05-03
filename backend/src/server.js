@@ -26,6 +26,8 @@ import { startCoopScheduler, stopCoopScheduler } from './lib/coopScheduler.js';
 import teslaRoutes from './routes/tesla/index.js';
 import { startTeslaScheduler, stopTeslaScheduler } from './lib/teslaScheduler.js';
 import caRoutes from './routes/ca/index.js';
+import audioRoutes from './routes/audio/index.js';
+import { startAudioWorker, stopAudioWorker } from './worker/audioWorker.js';
 
 const fastify = Fastify({
   logger: {
@@ -139,6 +141,11 @@ if (config.caEnabled) {
   fastify.log.info('CA enabled — CA routes registered');
 }
 
+if (config.audioEnabled) {
+  await fastify.register(audioRoutes);
+  fastify.log.info('Audio enabled — audio routes registered');
+}
+
 // ── Startup ───────────────────────────────────────────────────────────────────
 try {
   await fastify.listen({ port: config.port, host: '0.0.0.0' });
@@ -147,6 +154,7 @@ try {
   if (config.deviceRole === 'hub') startHubWorker();
   if (config.coopEnabled) startCoopScheduler();
   if (config.teslaEnabled) startTeslaScheduler();
+  if (config.audioEnabled) startAudioWorker();
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);
@@ -160,6 +168,7 @@ const shutdown = async (signal) => {
   if (config.deviceRole === 'hub') stopHubWorker();
   if (config.coopEnabled) stopCoopScheduler();
   if (config.teslaEnabled) stopTeslaScheduler();
+  if (config.audioEnabled) stopAudioWorker();
   await fastify.close();
   process.exit(0);
 };
