@@ -34,6 +34,12 @@ export async function runPipeline({ srcPaths, fileMeta, outputPath, longDesc, on
   // Total source duration — used to calculate progress percentage
   const totalDuration = fileMeta.reduce((s, m) => s + m.duration, 0);
 
+  // Output frame rate — use the highest fps across all source clips.
+  // -fps_mode cfr forces constant frame rate output, which is required for
+  // iPhone HEVC footage whose VFR container avg_frame_rate (~59.94) causes
+  // ffmpeg to silently downgrade the output to 30fps without this flag.
+  const outputFps = Math.max(...fileMeta.map(m => m.fps));
+
   // ── Build FFmpeg arguments ─────────────────────────────────────────────────
   const args = [];
 
@@ -70,17 +76,19 @@ export async function runPipeline({ srcPaths, fileMeta, outputPath, longDesc, on
 
   // Encoding parameters
   args.push(
+    '-fps_mode', 'cfr',          // force constant frame rate output
+    '-r', String(outputFps),     // lock output frame rate to probed source fps
     '-c:v', 'libx265',
     '-crf', String(crf),
     '-preset', preset,
-    '-tag:v', 'hvc1',        // required for Apple QuickTime / iOS playback
+    '-tag:v', 'hvc1',            // required for Apple QuickTime / iOS playback
     '-c:a', 'aac',
     '-b:a', audioBitrate,
     '-threads', String(config.ffmpegThreads),
     '-metadata', `comment=${longDesc}`,
-    '-progress', 'pipe:1',   // machine-readable progress to stdout
-    '-nostats',              // suppress the human-readable stats on stderr
-    '-y',                    // overwrite output without prompting
+    '-progress', 'pipe:1',       // machine-readable progress to stdout
+    '-nostats',                  // suppress the human-readable stats on stderr
+    '-y',                        // overwrite output without prompting
     outputPath,
   );
 
@@ -125,15 +133,12 @@ export async function runPipeline({ srcPaths, fileMeta, outputPath, longDesc, on
     proc.on('close', async code => {
       if (code === 0) {
         onProgress(1.0);
-        if (fs.existsSync(outputPath)) {
-          try {
-            await chmod(outputPath, 0o644);
-            await chown(outputPath, config.outputUid, config.outputGid);
-          } catch (err) {
-            console.warn(`[pipeline] Could not set ownership on ${outputPath}:`, err.message);
-          }
-        } else {
-          console.warn(`[pipeline] Output file not found after encode: ${outputPath}`);
+        try {
+          await chmod(outputPath, 0o644);
+          await chown(outputPath, config.outputUid, config.outputGid);
+        } catch (err) {
+          // Non-fatal — file is encoded correctly; log and continue
+          console.warn(`[pipeline] Could not set ownership on ${outputPath}:`, err.message);
         }
         resolve();
       } else {

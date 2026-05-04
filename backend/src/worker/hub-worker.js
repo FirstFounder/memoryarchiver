@@ -27,6 +27,13 @@ const cronTasks = new Map();
 // Set of destinationIds with a sync currently in flight
 const running = new Set();
 
+// Hosts that push content inbound to noah; their scratch manifests are authoritative
+// for skip decisions when fresh, so we don't mount and rsync when nothing has changed.
+const INBOUND_PUSH_HOSTS = ['iolo', 'jaana'];
+
+// Maximum age (ms) of a scratch manifest before we fall back to full tree diff
+const SCRATCH_MANIFEST_MAX_AGE_MS = 48 * 60 * 60 * 1000; // 48 hours
+
 // ── Public API ────────────────────────────────────────────────────────────────
 
 export function startHubWorker() {
@@ -134,6 +141,53 @@ function runCleanup() {
   if (n > 0) console.log(`[hub-worker] Purged ${n} old job record(s)`);
 }
 
+// ── Manifest check helpers ────────────────────────────────────────────────────
+
+/**
+ * For iolo and jaana, the inbound push process writes a scratch manifest to noah
+ * after each successful inbound sync. If that manifest is fresh (< 48 hours) and
+ * matches noah's current tree, we can skip the outbound sync entirely — the remote
+ * already has everything because it originated it.
+ *
+ * Falls back to full tree diff if the scratch manifest is absent or stale.
+ *
+ * Returns true if both trees can be confirmed unchanged (skip is safe).
+ */
+async function checkManifests(dest, famManifestPath, vaultManifestPath) {
+  if (INBOUND_PUSH_HOSTS.includes(dest.hostname)) {
+    const scratchPath = `/volume1/RFA/scratch/${dest.hostname}Manifest.txt`;
+    try {
+      const stat = await fs.stat(scratchPath);
+      const ageMs = Date.now() - stat.mtimeMs;
+      if (ageMs <= SCRATCH_MANIFEST_MAX_AGE_MS) {
+        // Scratch manifest is fresh — use it as a proxy for both trees.
+        // The inbound push wrote this after a successful full-tree sync, so if
+        // noah's tree still matches it, iolo/jaana already has everything.
+        const scratchMatch = await manifestMatchesTree({
+          sourcePath: '/volume1/RFA',
+          manifestPath: scratchPath,
+        });
+        if (scratchMatch) {
+          console.log(`[hub-worker] ${dest.hostname}: fresh scratch manifest matches — skipping outbound sync`);
+          return true;
+        }
+        console.log(`[hub-worker] ${dest.hostname}: scratch manifest present but tree has changed — proceeding with sync`);
+        return false;
+      }
+      console.log(`[hub-worker] ${dest.hostname}: scratch manifest is stale (${Math.round(ageMs / 3600000)}h) — falling back to full diff`);
+    } catch {
+      console.log(`[hub-worker] ${dest.hostname}: no scratch manifest found — falling back to full diff`);
+    }
+  }
+
+  // Standard path: compare noah's trees against the stored outbound manifests
+  const [famMatch, vaultMatch] = await Promise.all([
+    manifestMatchesTree({ sourcePath: '/volume1/RFA/Fam',   manifestPath: famManifestPath }),
+    manifestMatchesTree({ sourcePath: '/volume1/RFA/Vault', manifestPath: vaultManifestPath }),
+  ]);
+  return famMatch && vaultMatch;
+}
+
 // ── Core sync logic ───────────────────────────────────────────────────────────
 
 async function runSyncJob(dest, jobId) {
@@ -146,15 +200,12 @@ async function runSyncJob(dest, jobId) {
     // ── Phase: manifest_check ─────────────────────────────────────────────────
     emitProgress(dest, jobId, { status: 'running', phase: 'manifest_check', progress: 0 });
 
-    const famManifestPath  = `/volume1/RFA/.manifests/${dest.hostname}/fam.manifest`;
+    const famManifestPath   = `/volume1/RFA/.manifests/${dest.hostname}/fam.manifest`;
     const vaultManifestPath = `/volume1/RFA/.manifests/${dest.hostname}/vault.manifest`;
 
-    const [famMatch, vaultMatch] = await Promise.all([
-      manifestMatchesTree({ sourcePath: '/volume1/RFA/Fam',  manifestPath: famManifestPath }),
-      manifestMatchesTree({ sourcePath: '/volume1/RFA/Vault', manifestPath: vaultManifestPath }),
-    ]);
+    const shouldSkip = await checkManifests(dest, famManifestPath, vaultManifestPath);
 
-    if (famMatch && vaultMatch) {
+    if (shouldSkip) {
       const duration = Math.round((Date.now() - startedAt) / 1000);
       db.transaction(() => {
         db.prepare(`
@@ -209,11 +260,11 @@ async function runSyncJob(dest, jobId) {
         vaultBytes = row?.vault_bytes ?? 0;
       } else {
         const result = await runSequentialRsync({ dest, jobId, mountPoints });
-        famBytes   = result.famBytes;
-        vaultBytes = result.vaultBytes;
-        famStatus  = result.famStatus;
+        famBytes    = result.famBytes;
+        vaultBytes  = result.vaultBytes;
+        famStatus   = result.famStatus;
         vaultStatus = result.vaultStatus;
-        errorMsg   = result.errorMsg;
+        errorMsg    = result.errorMsg;
       }
     } finally {
       // ── Phase: unmounting — always runs even if rsync errored ─────────────
@@ -228,9 +279,9 @@ async function runSyncJob(dest, jobId) {
     // Re-read per-tree status from DB for parallel path (set inside runParallelRsync)
     if (dest.parallel) {
       const row = db.prepare('SELECT fam_status, vault_status, error_msg FROM hub_sync_jobs WHERE id = ?').get(jobId);
-      famStatus  = row?.fam_status  ?? 'done';
+      famStatus   = row?.fam_status  ?? 'done';
       vaultStatus = row?.vault_status ?? 'done';
-      errorMsg   = row?.error_msg   ?? null;
+      errorMsg    = row?.error_msg   ?? null;
     }
 
     const overallStatus = (famStatus === 'error' || vaultStatus === 'error') ? 'error' : 'done';
@@ -240,7 +291,7 @@ async function runSyncJob(dest, jobId) {
       emitProgress(dest, jobId, { status: 'running', phase: 'writing_manifest', progress: dest.parallel ? null : 98 });
       await fs.mkdir(`/volume1/RFA/.manifests/${dest.hostname}`, { recursive: true });
       await Promise.all([
-        writeManifest({ sourcePath: '/volume1/RFA/Fam',  outputPath: famManifestPath }),
+        writeManifest({ sourcePath: '/volume1/RFA/Fam',   outputPath: famManifestPath }),
         writeManifest({ sourcePath: '/volume1/RFA/Vault', outputPath: vaultManifestPath }),
       ]);
 

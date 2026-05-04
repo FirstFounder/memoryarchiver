@@ -17,9 +17,11 @@ function formatBytes(bytes) {
   return `${(bytes / 1_073_741_824).toFixed(2)} GB`;
 }
 
-function formatRate(bytesPerSec) {
-  if (!bytesPerSec) return '—';
-  return `${((bytesPerSec * 8) / 1_000_000).toFixed(1)} Mbps`;
+// avgBitrateKbps is stored and returned as KB/s
+function formatRate(kbps) {
+  if (!kbps) return '—';
+  if (kbps < 1000) return `${kbps} KB/s`;
+  return `${(kbps / 1024).toFixed(1)} MB/s`;
 }
 
 function formatDuration(secs) {
@@ -148,7 +150,7 @@ export function SyncHistoryTable({ destinations }) {
                         {row.hostname ?? row.destination ?? '—'}
                       </td>
                       <td className="py-2 pr-4">{formatDate(row.startedAt)}</td>
-                      <td className="py-2 pr-4">{formatDuration(row.duration)}</td>
+                      <td className="py-2 pr-4">{formatDuration(row.durationSeconds)}</td>
                       <td className="py-2 pr-4">
                         <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${STATUS_PILL[row.status] ?? 'text-slate-500'}`}>
                           {row.status}
@@ -164,7 +166,7 @@ export function SyncHistoryTable({ destinations }) {
                           ? <span className="text-slate-600 italic">manifest match</span>
                           : formatBytes(row.vaultBytes)}
                       </td>
-                      <td className="py-2">{formatRate(row.avgRate)}</td>
+                      <td className="py-2">{formatRate(row.avgBitrateKbps)}</td>
                     </tr>
                   );
                 })}
