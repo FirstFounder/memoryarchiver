@@ -15,6 +15,7 @@ export async function janusExec(command, timeoutMs = 10_000) {
   const sshCmd =
     `ssh -i "${config.coopSshKey}" -o IdentitiesOnly=yes ` +
     `-o StrictHostKeyChecking=accept-new -o ConnectTimeout=8 ` +
+    `-o ServerAliveInterval=15 -o ServerAliveCountMax=3 ` +
     `root@${config.coopJanusIp} '${command}'`;
   const { stdout } = await execAsync(sshCmd, { timeout: timeoutMs });
   return stdout.trim();
