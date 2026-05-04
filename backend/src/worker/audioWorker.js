@@ -10,6 +10,10 @@ const TIMEOUT_MS        = 3 * 60 * 60 * 1000;  // 3 hours max per file
 const NAS_ROOT    = '/volume1/RFA';
 const SQUAT_MOUNT = '/Volumes/iloRFA';
 
+// Model ID must match the HuggingFace repo used by mlx-whisper on squat.
+// Overridable via WHISPER_MODEL in backend/.env.
+const WHISPER_MODEL = process.env.WHISPER_MODEL ?? 'mlx-community/whisper-large-v3-mlx';
+
 let running   = false;
 let pollTimer = null;
 
@@ -45,7 +49,7 @@ async function dispatchTranscription(row) {
     body:    JSON.stringify({
       jobId:     row.id,
       audioPath: squatPath,
-      model:     'large-v3',
+      model:     WHISPER_MODEL,
     }),
     signal: AbortSignal.timeout(10_000),
   });
@@ -144,14 +148,14 @@ async function processRow(row) {
       UPDATE audio_files
       SET transcript_status  = 'done',
           transcript_text    = ?,
-          transcript_model   = 'large-v3',
+          transcript_model   = ?,
           transcribed_at     = ?,
           transcript_error   = NULL
       WHERE id = ?
-    `).run(result.text, now, row.id);
+    `).run(result.text, WHISPER_MODEL, now, row.id);
 
     updateMetaJson(row.meta_path, {
-      model:          'large-v3',
+      model:          WHISPER_MODEL,
       transcribed_at: now,
       text:           result.text,
       segments:       result.segments ?? [],
