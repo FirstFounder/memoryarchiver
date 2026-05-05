@@ -49,9 +49,11 @@ export async function runPipeline({ srcPaths, fileMeta, outputPath, longDesc, on
   }
 
   if (N === 1) {
-    // Simple single-input path (avoids filter_complex overhead)
+    // Simple single-input path (avoids filter_complex overhead).
+    // Explicitly map only the first video and audio streams to drop iPhone
+    // metadata/telemetry tracks (mebx, tmcd, etc.) that cause ffmpeg to exit 234.
     const { vf, af } = buildFadeFilters(fileMeta[0].duration, fileMeta[0].fps);
-    args.push('-vf', vf, '-af', af);
+    args.push('-map', '0:v:0', '-map', '0:a:0', '-vf', vf, '-af', af);
   } else {
     // Multi-input: build a filter_complex with per-clip fades then concat
     const filterParts = [];
