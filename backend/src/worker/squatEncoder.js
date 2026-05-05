@@ -1,16 +1,54 @@
 import fs from 'fs';
-import { chown, chmod } from 'fs/promises';
+import path from 'path';
+import { chown, chmod, copyFile } from 'fs/promises';
 import config from '../config.js';
 import { buildFadeFilters } from './fades.js';
 
 const NAS_ROOT    = '/volume1/RFA';
 const SQUAT_MOUNT = '/Volumes/iloRFA';
 
+/**
+ * Translate an iolo-local path under NAS_ROOT to squat's NFS mount path.
+ * Only valid for paths already under NAS_ROOT — stage scratch/temp files first.
+ */
 function toSquatPath(ioloPath) {
   if (!ioloPath.startsWith(NAS_ROOT)) {
     throw new Error(`Path not on RFA share: ${ioloPath}`);
   }
   return SQUAT_MOUNT + ioloPath.slice(NAS_ROOT.length);
+}
+
+/**
+ * Copy any source file that is not already under NAS_ROOT into UPLOAD_TEMP_DIR
+ * so squat can reach it via the NFS mount.  Returns an array of { original,
+ * staged } pairs for cleanup, and the translated squat-visible path array.
+ */
+async function stageSourcesForSquat(srcPaths) {
+  const tempDir  = config.uploadTempDir;
+  const stagedMap = []; // { original: string, staged: string | null }
+
+  const squatPaths = await Promise.all(srcPaths.map(async (src) => {
+    if (src.startsWith(NAS_ROOT)) {
+      stagedMap.push({ original: src, staged: null });
+      return toSquatPath(src);
+    }
+
+    // File is outside the RFA share (e.g. scratch or upload temp) — copy it
+    // into UPLOAD_TEMP_DIR which IS under NAS_ROOT via /volume1/homes/...
+    // Wait — UPLOAD_TEMP_DIR is under /volume1/homes, not /volume1/RFA either.
+    // We need to stage into the RFA tree itself. Use a dedicated staging dir.
+    const stagingDir = path.join(NAS_ROOT, '_squat_staging');
+    fs.mkdirSync(stagingDir, { recursive: true });
+
+    const tmpName = `${Date.now()}-${Math.random().toString(36).slice(2)}${path.extname(src)}`;
+    const staged  = path.join(stagingDir, tmpName);
+
+    await copyFile(src, staged);
+    stagedMap.push({ original: src, staged });
+    return toSquatPath(staged);
+  }));
+
+  return { squatPaths, stagedMap };
 }
 
 // Mirrors the audio bitrate table in pipeline.js — same resolution thresholds.
@@ -52,8 +90,9 @@ export async function runSquatPipeline({ srcPaths, fileMeta, outputPath, longDes
   // 1. Verify squat is reachable and NFS is mounted before dispatching
   await checkHealth(host, port);
 
-  // 2. Translate paths from iolo-local to squat's NFS mount
-  const squatSrcPaths  = srcPaths.map(toSquatPath);
+  // 2. Stage any source files that are not under NAS_ROOT (scratch, upload temp)
+  //    into /volume1/RFA/_squat_staging so squat can reach them via NFS.
+  const { squatPaths: squatSrcPaths, stagedMap } = await stageSourcesForSquat(srcPaths);
   const squatOutputPath = toSquatPath(outputPath);
 
   const N          = srcPaths.length;
@@ -71,7 +110,6 @@ export async function runSquatPipeline({ srcPaths, fileMeta, outputPath, longDes
   const args = [];
 
   if (N === 1) {
-    // Simple single-input path (avoids filter_complex overhead).
     // Explicitly map only the first video and audio streams to drop iPhone
     // metadata/telemetry tracks (mebx, tmcd, etc.) that cause ffmpeg to exit 234.
     const { vf, af } = buildFadeFilters(fileMeta[0].duration, fileMeta[0].fps);
@@ -118,34 +156,43 @@ export async function runSquatPipeline({ srcPaths, fileMeta, outputPath, longDes
     console.warn(`[squat] Could not set ownership on ${outputDir}:`, err.message);
   }
 
-  // 4. Dispatch encode job to squat
-  const encodeRes = await fetch(`http://${host}:${port}/encode`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({
-      sourcePaths: squatSrcPaths,
-      outputPath:  squatOutputPath,
-      ffmpegArgs:  args,
-    }),
-    signal: AbortSignal.timeout(10_000),
-  });
-
-  if (!encodeRes.ok) {
-    const text = await encodeRes.text().catch(() => '');
-    throw new Error(`Squat /encode rejected (${encodeRes.status}): ${text}`);
-  }
-
-  // 5. Signal that the job is live on the remote encoder
-  onProgress(0.01);
-
-  // 6. Poll until squat reports idle (done) or error
-  await pollUntilDone(host, port);
-
-  // 7. Fix ownership — squat writes as UID 501 (jrennert), unknown on iolo
   try {
-    await chmod(outputPath, 0o644);
-    await chown(outputPath, config.outputUid, config.outputGid);
-  } catch (err) {
-    console.warn(`[squat] Could not set ownership on ${outputPath}:`, err.message);
+    // 4. Dispatch encode job to squat
+    const encodeRes = await fetch(`http://${host}:${port}/encode`, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify({
+        sourcePaths: squatSrcPaths,
+        outputPath:  squatOutputPath,
+        ffmpegArgs:  args,
+      }),
+      signal: AbortSignal.timeout(10_000),
+    });
+
+    if (!encodeRes.ok) {
+      const text = await encodeRes.text().catch(() => '');
+      throw new Error(`Squat /encode rejected (${encodeRes.status}): ${text}`);
+    }
+
+    // 5. Signal that the job is live on the remote encoder
+    onProgress(0.01);
+
+    // 6. Poll until squat reports idle (done) or error
+    await pollUntilDone(host, port);
+
+    // 7. Fix ownership — squat writes as UID 501 (jrennert), unknown on iolo
+    try {
+      await chmod(outputPath, 0o644);
+      await chown(outputPath, config.outputUid, config.outputGid);
+    } catch (err) {
+      console.warn(`[squat] Could not set ownership on ${outputPath}:`, err.message);
+    }
+  } finally {
+    // 8. Clean up any staged copies in _squat_staging (best-effort)
+    for (const { staged } of stagedMap) {
+      if (staged) {
+        try { fs.unlinkSync(staged); } catch { /* best-effort */ }
+      }
+    }
   }
 }
