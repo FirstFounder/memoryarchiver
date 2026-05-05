@@ -44,6 +44,7 @@ async function stageSourcesForSquat(srcPaths) {
     const staged  = path.join(stagingDir, tmpName);
 
     await copyFile(src, staged);
+    fs.chmodSync(staged, 0o644);  // ensure squat can read via NFS regardless of source permissions
     stagedMap.push({ original: src, staged });
     return toSquatPath(staged);
   }));
