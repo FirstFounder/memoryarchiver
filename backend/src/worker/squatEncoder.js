@@ -84,7 +84,7 @@ async function pollUntilDone(host, port) {
   throw new Error('Squat encode timed out after 2 hours');
 }
 
-export async function runSquatPipeline({ srcPaths, fileMeta, outputPath, longDesc, onProgress }) {
+export async function runSquatPipeline({ jobId, srcPaths, fileMeta, outputPath, longDesc, onProgress }) {
   const { squatHost: host, squatPort: port } = config;
 
   // 1. Verify squat is reachable and NFS is mounted before dispatching
@@ -162,6 +162,7 @@ export async function runSquatPipeline({ srcPaths, fileMeta, outputPath, longDes
       method:  'POST',
       headers: { 'Content-Type': 'application/json' },
       body:    JSON.stringify({
+        jobId,
         sourcePaths: squatSrcPaths,
         outputPath:  squatOutputPath,
         ffmpegArgs:  args,
