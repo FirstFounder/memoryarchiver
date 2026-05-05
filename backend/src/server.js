@@ -16,6 +16,7 @@ import browseRoutes    from './routes/browse.js';
 import eventsRoute     from './routes/events.js';
 import syncRoutes      from './routes/sync.js';
 import appConfigRoute  from './routes/appConfig.js';
+import probeRoutes     from './routes/probe.js';
 import { startWorker, stopWorker } from './worker/index.js';
 import { startSyncWorker, stopSyncWorker } from './worker/sync-worker.js';
 import { startHubWorker, stopHubWorker } from './worker/hub-worker.js';
@@ -106,6 +107,7 @@ try {
 
 // ── API routes ────────────────────────────────────────────────────────────────
 await fastify.register(uploadRoutes);
+await fastify.register(probeRoutes);
 await fastify.register(submitRoutes);
 await fastify.register(jobsRoutes);
 await fastify.register(browseRoutes);

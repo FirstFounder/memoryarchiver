@@ -168,6 +168,9 @@ export default function App() {
   // Whether the NAS file browser modal is open
   const [browserOpen, setBrowserOpen] = useState(false);
 
+  // Probe error shown when NAS file probe fails
+  const [probeError, setProbeError] = useState(null);
+
   // Merge newly uploaded/selected files into the current list
   const addFiles = (incoming) => {
     setFiles(prev => {
@@ -178,12 +181,26 @@ export default function App() {
   };
 
   // Called when the NAS browser returns a list of subpaths (relative to SCRATCH_ROOT).
-  // The backend resolves them against NAS_SCRATCH_ROOT and validates they are allowed.
-  const handleNasSelect = (subpaths) => {
-    addFiles(subpaths.map(p => ({
-      path:     p,               // subpath — backend resolves to absolute NAS path
-      origName: p.split('/').pop(),
-    })));
+  // Probes each file immediately so metadata is available before the user submits,
+  // matching the behaviour of the local upload path.
+  const handleNasSelect = async (subpaths) => {
+    setProbeError(null);
+    setBrowserOpen(false);
+    try {
+      const res = await fetch('/api/probe', {
+        method:  'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body:    JSON.stringify({ paths: subpaths }),
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? `Probe failed: HTTP ${res.status}`);
+      }
+      const meta = await res.json();
+      addFiles(meta);
+    } catch (err) {
+      setProbeError(err.message || 'Could not read file metadata — please try again.');
+    }
   };
 
   return (
@@ -254,6 +271,9 @@ export default function App() {
             </div>
 
             <DropZone onUploaded={addFiles} disabled={browserOpen} />
+            {probeError && (
+              <p className="mt-2 text-red-400 text-xs">{probeError}</p>
+            )}
             <FileList files={files} onChange={setFiles} />
           </section>
 
