@@ -31,3 +31,5 @@ for BASE in "/volume1/RFA/Fam" "/volume1/RFA/Vault"; do
 done
 
 echo "Complete."
+ash-4.4# 
+
