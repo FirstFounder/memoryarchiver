@@ -19,6 +19,17 @@ import { useAppConfigStore } from './store/appConfigStore.js';
 
 const FIXED_RATE_CENTS = 7.8;
 
+function useIsMobile() {
+  const query = window.matchMedia('(max-width: 1023px)');
+  const [isMobile, setIsMobile] = useState(query.matches);
+  useEffect(() => {
+    const handler = (e) => setIsMobile(e.matches);
+    query.addEventListener('change', handler);
+    return () => query.removeEventListener('change', handler);
+  }, []);
+  return isMobile;
+}
+
 function useComEdPricing() {
   const [state, setState] = useState({ currentPrice: null, hourlyAvg: null, priceTrend: 'same', avgTrend: 'same' });
   const [loading, setLoading] = useState(false);
@@ -110,6 +121,8 @@ export default function App() {
   // Hook the SSE stream for the lifetime of the app
   useSSE();
 
+  const isMobile = useIsMobile();
+
   // Fetch server config once on mount and populate the store
   const setConfig    = useAppConfigStore(s => s.setConfig);
   const deviceRole   = useAppConfigStore(s => s.deviceRole);
@@ -155,12 +168,25 @@ export default function App() {
 
   const [activeTab, setActiveTab] = useState('queues');
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [sourceOpen, setSourceOpen] = useState(true);
 
   useEffect(() => {
     if (!tabs.some(tab => tab.id === activeTab)) {
       setActiveTab('queues');
     }
   }, [activeTab, tabs]);
+
+  useEffect(() => {
+    if (configLoaded && isMobile && isCoop) {
+      setActiveTab('coop');
+    }
+  }, [configLoaded, isMobile, isCoop]);
+
+  useEffect(() => {
+    if (isMobile && isCoop) {
+      setSourceOpen(false);
+    }
+  }, [isMobile, isCoop]);
 
   // Selected source files (uploaded or NAS-picked)
   const [files, setFiles] = useState([]);
@@ -256,37 +282,81 @@ export default function App() {
       <main className="flex-1 flex flex-col lg:flex-row gap-0 overflow-hidden">
 
         {/* ── Left panel: source + form ───────────────────────────────────── */}
-        <div className="lg:w-96 xl:w-[28rem] shrink-0 border-b lg:border-b-0 lg:border-r border-slate-800 p-6 overflow-y-auto flex flex-col gap-6">
+        {isMobile && isCoop ? (
+          <div className="shrink-0 border-b border-slate-800 flex flex-col">
+            <button
+              onClick={() => setSourceOpen(o => !o)}
+              className="w-full flex items-center justify-between px-6 py-3 border-b border-slate-800 text-slate-400 hover:text-slate-200 text-sm transition-colors"
+            >
+              <span>Source & Details</span>
+              <span>{sourceOpen ? '▼' : '▶'}</span>
+            </button>
+            {sourceOpen && (
+              <div className="p-6 overflow-y-auto flex flex-col gap-6">
+                {/* Source section */}
+                <section>
+                  <div className="flex items-center justify-between mb-3">
+                    <h2 className="text-slate-200 font-semibold text-sm">Source Clips</h2>
+                    <button
+                      onClick={() => setBrowserOpen(true)}
+                      className="text-xs text-indigo-400 hover:text-indigo-300 border border-indigo-800 hover:border-indigo-600 px-2.5 py-1 rounded-lg transition-colors"
+                    >
+                      Browse NAS
+                    </button>
+                  </div>
 
-          {/* Source section */}
-          <section>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="text-slate-200 font-semibold text-sm">Source Clips</h2>
-              <button
-                onClick={() => setBrowserOpen(true)}
-                className="text-xs text-indigo-400 hover:text-indigo-300 border border-indigo-800 hover:border-indigo-600 px-2.5 py-1 rounded-lg transition-colors"
-              >
-                Browse NAS
-              </button>
-            </div>
+                  <DropZone onUploaded={addFiles} disabled={browserOpen} />
+                  {probeError && (
+                    <p className="mt-2 text-red-400 text-xs">{probeError}</p>
+                  )}
+                  <FileList files={files} onChange={setFiles} />
+                </section>
 
-            <DropZone onUploaded={addFiles} disabled={browserOpen} />
-            {probeError && (
-              <p className="mt-2 text-red-400 text-xs">{probeError}</p>
+                {/* Job form */}
+                <section>
+                  <h2 className="text-slate-200 font-semibold text-sm mb-1">Details</h2>
+                  <JobForm
+                    files={files}
+                    onSuccess={() => {}}
+                    onClear={() => setFiles([])}
+                  />
+                </section>
+              </div>
             )}
-            <FileList files={files} onChange={setFiles} />
-          </section>
+          </div>
+        ) : (
+          <div className="lg:w-96 xl:w-[28rem] shrink-0 border-b lg:border-b-0 lg:border-r border-slate-800 p-6 overflow-y-auto flex flex-col gap-6">
 
-          {/* Job form */}
-          <section>
-            <h2 className="text-slate-200 font-semibold text-sm mb-1">Details</h2>
-            <JobForm
-              files={files}
-              onSuccess={() => {}}
-              onClear={() => setFiles([])}
-            />
-          </section>
-        </div>
+            {/* Source section */}
+            <section>
+              <div className="flex items-center justify-between mb-3">
+                <h2 className="text-slate-200 font-semibold text-sm">Source Clips</h2>
+                <button
+                  onClick={() => setBrowserOpen(true)}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 border border-indigo-800 hover:border-indigo-600 px-2.5 py-1 rounded-lg transition-colors"
+                >
+                  Browse NAS
+                </button>
+              </div>
+
+              <DropZone onUploaded={addFiles} disabled={browserOpen} />
+              {probeError && (
+                <p className="mt-2 text-red-400 text-xs">{probeError}</p>
+              )}
+              <FileList files={files} onChange={setFiles} />
+            </section>
+
+            {/* Job form */}
+            <section>
+              <h2 className="text-slate-200 font-semibold text-sm mb-1">Details</h2>
+              <JobForm
+                files={files}
+                onSuccess={() => {}}
+                onClear={() => setFiles([])}
+              />
+            </section>
+          </div>
+        )}
 
         {/* ── Right panel: queues / hub ───────────────────────────────────── */}
         <div className="flex-1 p-6 overflow-y-auto flex flex-col">
