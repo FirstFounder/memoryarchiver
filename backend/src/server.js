@@ -30,6 +30,7 @@ import { startTeslaMqtt, stopTeslaMqtt } from './lib/teslaMqtt.js';
 import caRoutes from './routes/ca/index.js';
 import audioRoutes from './routes/audio/index.js';
 import { startAudioWorker, stopAudioWorker } from './worker/audioWorker.js';
+import backupRoutes from './routes/backup.js';
 
 const fastify = Fastify({
   logger: {
@@ -115,6 +116,7 @@ await fastify.register(browseRoutes);
 await fastify.register(eventsRoute);
 await fastify.register(syncRoutes);
 await fastify.register(appConfigRoute);
+await fastify.register(backupRoutes);
 
 if (config.deviceRole === 'hub') {
   await fastify.register(hubRoutes);
