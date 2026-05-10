@@ -103,6 +103,15 @@ export async function fetchActualPrices() {
   return fetchPrices('https://hourlypricing.comed.com/api?type=dayaheadhouraverage&format=json');
 }
 
+export async function fetchCurrentHourPrice() {
+  return fetchPrices('https://hourlypricing.comed.com/api?type=currenthouraverage&format=json');
+}
+
+export async function fetchFiveMinuteFeed() {
+  const entries = await fetchPrices('https://hourlypricing.comed.com/api?type=5minutefeed&format=json');
+  return entries.sort((a, b) => a.millisUTC - b.millisUTC);
+}
+
 export function filterOvernightPrices(prices, windowStartHour, targetHour) {
   const sorted = [...prices].sort((a, b) => a.millisUTC - b.millisUTC);
   const todayKey = getDateKeyInChicago();

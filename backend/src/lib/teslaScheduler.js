@@ -7,6 +7,7 @@ import { checkForOverride } from './overrideDetector.js';
 
 let scheduledTask = null;
 let morningTask = null;
+let adjustTask = null;
 let running = false;
 
 function getSettings() {
@@ -58,8 +59,8 @@ async function runScheduler() {
   }
 }
 
-export function startTeslaScheduler() {
-  if (!config.teslaEnabled || scheduledTask || morningTask) return;
+export async function startTeslaScheduler() {
+  if (!config.teslaEnabled || scheduledTask || morningTask || adjustTask) return;
 
   const settings = getSettings();
   const expression = settings?.eval_cron ?? '45 21 * * *';
@@ -84,6 +85,17 @@ export function startTeslaScheduler() {
   });
 
   console.info(`[teslaScheduler] morning poll scheduled with cron "${morningExpression}"`);
+
+  const { runIntraSessionAdjuster } = await import('./intraSessionAdjuster.js');
+  const adjustExpression = settings?.intra_adjust_cron ?? '0 22-23,0-7 * * *';
+  adjustTask = cron.schedule(adjustExpression, () => {
+    runIntraSessionAdjuster().catch((error) => {
+      console.error('[teslaScheduler] unhandled intra-session adjuster error', error);
+    });
+  }, {
+    timezone: 'America/Chicago',
+  });
+  console.info(`[teslaScheduler] intra-session adjuster scheduled with cron "${adjustExpression}"`);
 }
 
 export function stopTeslaScheduler() {
@@ -94,5 +106,9 @@ export function stopTeslaScheduler() {
   if (morningTask) {
     morningTask.stop();
     morningTask = null;
+  }
+  if (adjustTask) {
+    adjustTask.stop();
+    adjustTask = null;
   }
 }

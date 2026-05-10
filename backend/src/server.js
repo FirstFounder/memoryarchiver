@@ -156,7 +156,7 @@ try {
   startSyncWorker();
   if (config.deviceRole === 'hub') startHubWorker();
   if (config.coopEnabled) startCoopScheduler();
-  if (config.teslaEnabled) startTeslaScheduler();
+  if (config.teslaEnabled) startTeslaScheduler().catch((err) => fastify.log.error(err));
   if (config.teslaEnabled && config.teslaMqttEnabled) startTeslaMqtt(fastify.log);
   if (config.audioEnabled) startAudioWorker();
 } catch (err) {
