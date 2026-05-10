@@ -93,3 +93,8 @@ export async function triggerMorningPoll(vin) {
 export async function getCapacity(vin) {
   return apiFetch(`/api/tesla/capacity/${encodeURIComponent(vin)}`);
 }
+
+export async function getMqttState() {
+  const res = await fetch('/api/tesla/mqtt/state');
+  return res.json();
+}

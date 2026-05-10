@@ -3,6 +3,7 @@ import db from '../db/client.js';
 import { fetchDayAheadPrices, filterOvernightPrices } from './coMedPrices.js';
 import { addChargeSchedule, setChargingAmps, setChargeLimit } from './teslaCommands.js';
 import { fetchVehicleData, isVehicleSleepError } from './teslaFleet.js';
+import { getCarStateByVin, isMqttFresh } from './teslaMqtt.js';
 import { fetchOvernightLow } from './weatherFetch.js';
 
 const VOLTS = 240;
@@ -352,23 +353,37 @@ export async function computePlan(vin) {
     hpwcAmps = manualEntry.hpwc_amps;
     consumeManualEntry(manualEntry.id);
   } else {
-    try {
-      const payload = await fetchVehicleData(vin, { wake: true });
-      const chargeState = payload?.response?.charge_state ?? {};
-      const vehicleState = payload?.response?.vehicle_state ?? {};
-      socPct = Number(chargeState.battery_level ?? 0);
-      chargeLimitPct = Number(chargeState.charge_limit_soc ?? vehicle.last_charge_limit_pct ?? 0);
-      hpwcAmps = Number(chargeState.charger_pilot_current ?? chargeState.charge_current_request_max ?? vehicle.last_hpwc_amps ?? 0);
-
+    // Try MQTT first — free, no wake call needed
+    const mqttState = getCarStateByVin(vin);
+    const mqttCarId = vehicle.teslamate_car_id;
+    if (mqttState && isMqttFresh(mqttCarId) && mqttState.state !== 'asleep') {
+      socPct         = Number(mqttState.battery_level ?? mqttState.usable_battery_level ?? 0);
+      chargeLimitPct = Number(mqttState.charge_limit_soc ?? vehicle.last_charge_limit_pct ?? 0);
+      hpwcAmps       = Number(mqttState.charge_current_request_max ?? vehicle.last_hpwc_amps ?? 0);
       updateVehicleCache(vin, {
-        last_hpwc_amps: hpwcAmps || vehicle.last_hpwc_amps,
+        last_hpwc_amps:        hpwcAmps       || vehicle.last_hpwc_amps,
         last_charge_limit_pct: chargeLimitPct || vehicle.last_charge_limit_pct,
-        cached_odometer: Number.isFinite(Number(vehicleState.odometer)) ? Math.round(Number(vehicleState.odometer)) : vehicle.cached_odometer,
       });
-    } catch (error) {
-      const alert = isVehicleSleepError(error) ? 'vehicle_asleep' : null;
-      const skipped = buildSkippedPlan(vin, { alert });
-      return { ...skipped, reason: 'fleet_unavailable' };
+    } else {
+      // Fall through to Fleet API poll (existing behavior)
+      try {
+        const payload = await fetchVehicleData(vin, { wake: true });
+        const chargeState = payload?.response?.charge_state ?? {};
+        const vehicleState = payload?.response?.vehicle_state ?? {};
+        socPct = Number(chargeState.battery_level ?? 0);
+        chargeLimitPct = Number(chargeState.charge_limit_soc ?? vehicle.last_charge_limit_pct ?? 0);
+        hpwcAmps = Number(chargeState.charger_pilot_current ?? chargeState.charge_current_request_max ?? vehicle.last_hpwc_amps ?? 0);
+
+        updateVehicleCache(vin, {
+          last_hpwc_amps: hpwcAmps || vehicle.last_hpwc_amps,
+          last_charge_limit_pct: chargeLimitPct || vehicle.last_charge_limit_pct,
+          cached_odometer: Number.isFinite(Number(vehicleState.odometer)) ? Math.round(Number(vehicleState.odometer)) : vehicle.cached_odometer,
+        });
+      } catch (error) {
+        const alert = isVehicleSleepError(error) ? 'vehicle_asleep' : null;
+        const skipped = buildSkippedPlan(vin, { alert });
+        return { ...skipped, reason: 'fleet_unavailable' };
+      }
     }
   }
 

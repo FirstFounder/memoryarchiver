@@ -9,6 +9,12 @@ import {
 } from '../../lib/teslaAuth.js';
 import { computePlan, pushPlan } from '../../lib/chargeScheduler.js';
 import { ensureVehicleOnline } from '../../lib/teslaFleet.js';
+import {
+  getCarState,
+  getAllCarState,
+  getCarStateByVin,
+  isMqttFresh,
+} from '../../lib/teslaMqtt.js';
 
 const VEHICLE_COLUMNS = `
   id, vin, nickname, display_name, model_label, cached_odometer,
@@ -116,6 +122,9 @@ export default async function teslaRoutes(fastify) {
     try {
       const payload = await fleetFetch(`/api/1/vehicles/${vin}`);
       const fleetVehicle = payload?.response ?? {};
+      const mqttRaw = getCarStateByVin(vin);
+      const fullVehicle = db.prepare('SELECT teslamate_car_id FROM tesla_config WHERE vin = ?').get(vin);
+      const mqttCarId = fullVehicle?.teslamate_car_id;
       return reply.send({
         vin,
         mode: vehicle.mode,
@@ -127,6 +136,9 @@ export default async function teslaRoutes(fastify) {
           state: fleetVehicle.state ?? 'offline',
           in_service: fleetVehicle.in_service ?? null,
         },
+        mqttState: mqttRaw
+          ? { ...mqttRaw, fresh: mqttCarId ? isMqttFresh(mqttCarId) : false }
+          : null,
       });
     } catch (err) {
       return reply.send({
@@ -134,6 +146,12 @@ export default async function teslaRoutes(fastify) {
         mode: vehicle.mode,
         error: 'fleet_error',
         message: err.message,
+        mqttState: (() => {
+          const s = getCarStateByVin(vin);
+          if (!s) return null;
+          const v = db.prepare('SELECT teslamate_car_id FROM tesla_config WHERE vin = ?').get(vin);
+          return { ...s, fresh: v?.teslamate_car_id ? isMqttFresh(v.teslamate_car_id) : false };
+        })(),
       });
     }
   });
@@ -462,6 +480,27 @@ export default async function teslaRoutes(fastify) {
     const { derivePackCapacity } = await import('../../lib/packCapacity.js');
     const result = derivePackCapacity(vin);
     return reply.send(result ?? { capacityKwh: null, sessionCount: 0 });
+  });
+
+  fastify.get('/api/tesla/mqtt/state', async (_req, reply) => {
+    const all = getAllCarState();
+    const result = {};
+    for (const [carId, state] of Object.entries(all)) {
+      result[carId] = { ...state, fresh: isMqttFresh(Number(carId)) };
+    }
+    return reply.send(result);
+  });
+
+  fastify.get('/api/tesla/mqtt/state/:carId', async (req, reply) => {
+    const carId = parseInt(req.params.carId, 10);
+    if (!Number.isFinite(carId)) {
+      return reply.code(400).send({ error: 'invalid_car_id' });
+    }
+    const state = getCarState(carId);
+    if (!state) {
+      return reply.code(404).send({ error: 'not_found' });
+    }
+    return reply.send({ ...state, fresh: isMqttFresh(carId) });
   });
 
   fastify.patch('/api/tesla/settings', async (req, reply) => {

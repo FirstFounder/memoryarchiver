@@ -1,5 +1,6 @@
 import db from '../db/client.js';
 import { fetchVehicleData } from './teslaFleet.js';
+import { getCarStateByVin, isMqttFresh } from './teslaMqtt.js';
 
 function parseScheduledStart(value) {
   if (value === null || value === undefined || value === '') return null;
@@ -56,8 +57,21 @@ export async function checkForOverride(vin) {
   if (!plan) return { overridden: false };
 
   const settings = getSettings();
-  const payload = await fetchVehicleData(vin, { wake: true });
-  const chargeState = payload?.response?.charge_state ?? {};
+  const mqttState = getCarStateByVin(vin);
+  const vehicleRow = db.prepare('SELECT teslamate_car_id FROM tesla_config WHERE vin = ?').get(vin);
+  const mqttCarId = vehicleRow?.teslamate_car_id;
+
+  let chargeState;
+  if (mqttState && isMqttFresh(mqttCarId) && mqttState.state !== 'asleep') {
+    chargeState = {
+      scheduled_charging_start_time: mqttState.scheduled_charging_start_time ?? null,
+      charge_amps:                   mqttState.charge_current_request ?? null,
+      battery_level:                 mqttState.battery_level ?? null,
+    };
+  } else {
+    const payload = await fetchVehicleData(vin, { wake: true });
+    chargeState = payload?.response?.charge_state ?? {};
+  }
   const actualStart = parseScheduledStart(chargeState.scheduled_charging_start_time);
   const actualAmps = Number(chargeState.charge_amps ?? chargeState.charge_current_request ?? 0);
   const currentSoc = Number(chargeState.battery_level ?? plan.soc_at_set_time ?? 0);

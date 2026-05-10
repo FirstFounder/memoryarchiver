@@ -88,4 +88,9 @@ export const useTeslaStore = create((set) => ({
   setSelectedGarageVin(vin) {
     set({ selectedGarageVin: vin });
   },
+
+  mqttState: {},
+  setMqttState(stateMap) {
+    set({ mqttState: stateMap });
+  },
 }));

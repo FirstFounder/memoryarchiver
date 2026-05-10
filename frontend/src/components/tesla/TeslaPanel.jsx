@@ -11,6 +11,7 @@ import {
 } from 'recharts';
 import {
   getLatestPlan,
+  getMqttState,
   getVehicleStatus,
   getVehicles,
   pollVehicle,
@@ -188,9 +189,49 @@ function StrategyTable({ plan }) {
   );
 }
 
+function celsiusToFahrenheit(c) {
+  return Math.round((c * 9 / 5 + 32) * 10) / 10;
+}
+
+function MqttLiveRow({ carId, mqttStateMap }) {
+  const state = mqttStateMap?.[carId] ?? mqttStateMap?.[String(carId)] ?? null;
+  const dotClass = !state
+    ? 'bg-slate-600'
+    : state.fresh
+      ? 'bg-green-500'
+      : 'bg-amber-500';
+
+  return (
+    <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-400">
+      <span className={`inline-block h-2 w-2 rounded-full ${dotClass}`} />
+      {state ? (
+        <>
+          {state.state && (
+            <span className="rounded-full border border-slate-700 bg-slate-800/60 px-2 py-0.5 capitalize text-slate-300">
+              {state.state}
+            </span>
+          )}
+          {state.battery_level != null && (
+            <span>{state.battery_level}%</span>
+          )}
+          {state.plugged_in === true && (
+            <span title="Plugged in">⚡</span>
+          )}
+          {state.outside_temp != null && (
+            <span>{celsiusToFahrenheit(state.outside_temp)}°F outside</span>
+          )}
+        </>
+      ) : (
+        <span>No MQTT data</span>
+      )}
+    </div>
+  );
+}
+
 function VehicleCard({ vehicle }) {
   const status = useTeslaStore(s => s.vehicleStatus[vehicle.vin]);
   const plan = useTeslaStore(s => s.plans[vehicle.vin]);
+  const mqttStateMap = useTeslaStore(s => s.mqttState);
   const setVehicleStatus = useTeslaStore(s => s.setVehicleStatus);
   const setPlan = useTeslaStore(s => s.setPlan);
   const [polling, setPolling] = useState(false);
@@ -263,6 +304,8 @@ function VehicleCard({ vehicle }) {
           {vehicle.mode}
         </span>
       </div>
+
+      <MqttLiveRow carId={vehicle.teslamate_car_id} mqttStateMap={mqttStateMap} />
 
       {vehicle.mode === 'connectivity' ? (
         <>
@@ -384,6 +427,25 @@ export function TeslaPanel() {
   const setVehicles = useTeslaStore(s => s.setVehicles);
   const setVehicleStatus = useTeslaStore(s => s.setVehicleStatus);
   const setPlan = useTeslaStore(s => s.setPlan);
+  const setMqttState = useTeslaStore(s => s.setMqttState);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchMqtt() {
+      try {
+        const data = await getMqttState();
+        if (!cancelled) setMqttState(data);
+      } catch {
+        // silently ignore — MQTT may be disabled on this node
+      }
+    }
+    fetchMqtt();
+    const interval = setInterval(fetchMqtt, 30_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [setMqttState]);
 
   useEffect(() => {
     let cancelled = false;
