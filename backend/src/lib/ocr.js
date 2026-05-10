@@ -1,44 +1,73 @@
 import { readFile } from 'fs/promises';
 import { execSync } from 'child_process';
 import path from 'path';
-import { PDFParse } from 'pdf-parse';
+import { createRequire } from 'module';
 
-// Warn at startup if tesseract is unavailable; it is never a hard dependency.
-let _tesseractAvailable = false;
+// pdf-parse ships as CJS; use createRequire to import it from ESM context.
+const require = createRequire(import.meta.url);
+const pdfParse = require('pdf-parse');
+
+// Tesseract is intentionally not a hard dependency — all supported inputs are
+// scan-app PDFs with embedded text layers. HEIC support is a future concern.
 try {
   execSync('which tesseract', { stdio: 'ignore' });
-  _tesseractAvailable = true;
 } catch {
-  console.warn('[ocr] tesseract not found — OCR image fallback disabled');
+  // tesseract absent — silently continue; image-only PDFs will warn per-page
 }
 
 /**
  * Extract text from each page of a PDF, returning one string per page.
- * Empty/whitespace pages produce a warning sentinel string instead of aborting.
+ * Empty/whitespace pages produce a warning sentinel string rather than aborting.
  *
- * @param {string} filePath
- * @returns {Promise<string[]>}
+ * @param {string} filePath  Absolute path to a PDF file.
+ * @returns {Promise<string[]>}  One element per page.
  */
 export async function extractTextPages(filePath) {
   const ext = path.extname(filePath).toLowerCase();
   if (ext === '.heic' || ext === '.heif') {
-    throw new Error('HEIC input not yet supported.');
+    throw new Error(
+      'HEIC input not yet supported — convert to PDF and re-import.'
+    );
   }
 
-  const data = await readFile(filePath);
-  const parser = new PDFParse({ data });
-  const result = await parser.getText();
-  await parser.destroy();
+  const buf = await readFile(filePath);
+  const pageTexts = [];
 
-  const pages = result.pages;
-  if (!pages || pages.length === 0) {
-    // Single-page PDFs with no selectable text surface as empty result.
-    return ['[WARNING: page 1 yielded no text]'];
+  // The pagerender callback is invoked once per page by pdf-parse.
+  // It MUST return a string (or Promise<string>); pdf-parse collects these.
+  // The returned strings are NOT exposed on the result object — we capture
+  // them via closure into pageTexts instead.
+  const options = {
+    pagerender(pageData) {
+      return pageData.getTextContent().then((tc) => {
+        const text = tc.items
+          .map((item) => item.str)
+          .join(' ')
+          .replace(/\s+/g, ' ')
+          .trim();
+        pageTexts.push(text);
+        // Must return a string — pdf-parse uses this as the page's text.
+        return text;
+      });
+    },
+  };
+
+  await pdfParse(buf, options);
+
+  // If pagerender was never called (e.g. empty or image-only PDF),
+  // fall back to the concatenated text result from a second pass.
+  if (pageTexts.length === 0) {
+    const fallback = await pdfParse(buf);
+    const text = (fallback.text ?? '').trim();
+    return [
+      text.length > 0
+        ? text
+        : '[WARNING: page 1 yielded no text]',
+    ];
   }
 
-  return pages.map((page, idx) => {
-    const text = page.text ?? '';
-    if (!text.trim()) {
+  return pageTexts.map((text, idx) => {
+    if (!text) {
       return `[WARNING: page ${idx + 1} yielded no text]`;
     }
     return text;
