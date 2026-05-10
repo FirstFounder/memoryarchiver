@@ -14,6 +14,7 @@ import { TeslaPanel } from './components/tesla/TeslaPanel.jsx';
 import { GaragePanel } from './components/tesla/GaragePanel.jsx';
 import { TeslaSettingsModal } from './components/tesla/TeslaSettingsModal.jsx';
 import { AudioTab } from './components/audio/AudioTab.jsx';
+import { ReceiptsPanel } from './components/receipts/ReceiptsPanel.jsx';
 import { getAppConfig } from './api/appConfig.js';
 import { useAppConfigStore } from './store/appConfigStore.js';
 
@@ -130,7 +131,8 @@ export default function App() {
   const coopEnabled  = useAppConfigStore(s => s.coopEnabled);
   const teslaEnabled = useAppConfigStore(s => s.teslaEnabled);
   const caEnabled    = useAppConfigStore(s => s.caEnabled);
-  const audioEnabled = useAppConfigStore(s => s.audioEnabled);
+  const audioEnabled    = useAppConfigStore(s => s.audioEnabled);
+  const receiptsEnabled = useAppConfigStore(s => s.receiptsEnabled);
   useEffect(() => {
     getAppConfig().then(setConfig).catch(() => { /* retain defaults on error */ });
   }, []);
@@ -139,7 +141,8 @@ export default function App() {
   const isCoop  = configLoaded && coopEnabled;
   const isTesla = configLoaded && teslaEnabled;
   const isCa    = configLoaded && caEnabled;
-  const isAudio = configLoaded && audioEnabled;
+  const isAudio    = configLoaded && audioEnabled;
+  const isReceipts = configLoaded && receiptsEnabled;
 
   const { currentPrice, hourlyAvg, priceTrend, avgTrend, loading: comedLoading, refresh: refreshComed } = useComEdPricing();
   const lastPriceArrow = useRef('↑');
@@ -162,7 +165,8 @@ export default function App() {
     ...(isCa ? [{ id: 'ca', label: 'CA' }] : []),
     ...(isCoop ? [{ id: 'coop', label: 'Coop' }] : []),
     ...(isTesla ? [{ id: 'garage', label: 'Garage' }, { id: 'tesla', label: 'Tesla' }] : []),
-    ...(isAudio ? [{ id: 'audio', label: 'Audio' }] : []),
+    ...(isAudio    ? [{ id: 'audio',    label: 'Audio'    }] : []),
+    ...(isReceipts ? [{ id: 'receipts', label: 'Receipts' }] : []),
   ];
   const showTabBar = tabs.length > 1;
 
@@ -413,6 +417,10 @@ export default function App() {
 
           {isAudio && activeTab === 'audio' && (
             <AudioTab />
+          )}
+
+          {isReceipts && activeTab === 'receipts' && (
+            <ReceiptsPanel />
           )}
         </div>
       </main>

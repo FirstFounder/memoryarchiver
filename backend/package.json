@@ -19,6 +19,7 @@
     "mqtt": "^5.15.1",
     "node-cron": "^3.0.3",
     "nodemailer": "^6.9.0",
+    "pdf-parse": "^2.4.5",
     "pino-pretty": "^13.1.3"
   }
 }
