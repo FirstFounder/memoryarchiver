@@ -31,6 +31,7 @@ import caRoutes from './routes/ca/index.js';
 import audioRoutes from './routes/audio/index.js';
 import { startAudioWorker, stopAudioWorker } from './worker/audioWorker.js';
 import backupRoutes from './routes/backup.js';
+import receiptsRoutes from './routes/receipts/index.js';
 
 const fastify = Fastify({
   logger: {
@@ -149,6 +150,11 @@ if (config.caEnabled) {
 if (config.audioEnabled) {
   await fastify.register(audioRoutes);
   fastify.log.info('Audio enabled — audio routes registered');
+}
+
+if (config.receiptsEnabled) {
+  await fastify.register(receiptsRoutes);
+  fastify.log.info('Receipts enabled — receipt routes registered');
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────

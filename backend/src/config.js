@@ -93,6 +93,10 @@ const config = Object.freeze({
   audioRawDir:   process.env.AUDIO_RAW_DIR  ?? '/volume1/RFA/Audio/raw',
   audioMetaDir:  process.env.AUDIO_META_DIR ?? '/volume1/RFA/Audio/meta',
 
+  // Receipts
+  receiptsEnabled:  process.env.RECEIPTS_ENABLED === 'true',
+  receiptsInputDir: process.env.RECEIPTS_INPUT_DIR ?? '',
+
   // TeslaMate MQTT broker (iolo-only)
   teslaMqttEnabled: process.env.TESLA_MQTT_ENABLED === 'true',
   teslaMqttHost:    process.env.TESLA_MQTT_HOST ?? '127.0.0.1',
