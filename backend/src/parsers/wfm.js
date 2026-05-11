@@ -57,13 +57,17 @@ const MULTI_UNIT_RE = /^(\d+)\s*@/;
 const ITEM_RE = /^(.+?)\s{2,}([\d]+\.[\d]{2})\s*([BTFRbtfr]?)$/;
 const ITEM_LOOSE_RE = /^(.+?)\s+([\d]+\.[\d]{2})\s*([BTFRbtfr]?)$/;
 
-// Lines to always skip regardless of section
+// Lines to always skip regardless of section.
+// NOTE: BALANCE and PURCHASES checks happen before this block in the loop,
+// so these patterns cannot accidentally suppress those critical lines.
 const SKIP_PATTERNS = [
   /^WFM\s*#/i,                              // store header line
   /^\d{1,5}\s+(?:Deerfield|IL-|118th)/i,   // address
   /^(?:Buffalo Grove|Lakemoor|Kenosha)/i,   // city
   /^(?:IL|WI)\s*$/i,                        // state alone
-  /^[*«x~\s\d]{0,6}\*{2,}/,               // masked card (2+ asterisks)
+  // Masked card: asterisks NOT followed by the word BALANCE.
+  // "***4498" → skip. "**** BALANCE 108.97" → do NOT skip (BALANCE wins above).
+  /^[*«x~\s\d]{0,6}\*{2,}(?!.*BALANCE)/i,
   /^[\d]{6,}-[\d]{4,}-[\d]{3}-/,           // approval code NNN-NNN-NNN-APPROVED
   /APPROVED/i,                              // any approval line
   /^(?:Purchase|Cashback|Total)\s+Amount/i,
@@ -131,12 +135,15 @@ export function parse(rawText) {
     }
 
     // --- PURCHASES section header → enter item section ---
+    // Checked before SKIP_PATTERNS so noise-prefixed PURCHASES lines aren't eaten.
     if (PURCHASES_RE.test(trimmed)) {
       inItemSection = true;
       continue;
     }
 
     // --- BALANCE line → capture subtotal, exit item section ---
+    // Checked before SKIP_PATTERNS so "**** BALANCE NN.NN" isn't eaten by the
+    // masked-card skip pattern.
     if (BALANCE_LINE_RE.test(trimmed)) {
       // Extract the last NN.NN amount on the line as the subtotal
       const amounts = [...trimmed.matchAll(AMOUNT_RE)].map(m => parseFloat(m[1]));
