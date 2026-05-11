@@ -24,7 +24,7 @@ const DATE_LINE_RE = /(\d{1,2})\/(\d{1,2})\/(\d{2})\s+\d{1,2}:\d{2}/;
 
 // PURCHASES section header — tolerates leading OCR noise chars (|, spaces, etc.)
 // Also handles OCR split "PURCHASE S"
-const PURCHASES_RE = /^[^A-Z0-9]*(?:PURCHASES?|URCHASES?|RCHASES?|CHASES?)\s*S?\s*$/i;
+const PURCHASES_RE = /^[^A-Z0-9]*(?:P?U?R?CHASES?|URCHASES?|HASES?)\s*/i;
 
 // BALANCE line — OCR mangles the leading asterisks in many ways:
 // "****  BALANCE  62.27"  → canonical
@@ -86,7 +86,7 @@ const SKIP_PATTERNS = [
  */
 export function parse(rawText) {
   // Must contain PURCHASES (possibly split by OCR noise)
-  if (!/(?:PURCHASES?|URCHASES?|RCHASES?|CHASES?)/i.test(rawText)) return null;
+  if (!/(?:PURCHASES?|URCHASES?|HASES?)/i.test(rawText)) return null;
 
   const result = {
     store_number: null,
