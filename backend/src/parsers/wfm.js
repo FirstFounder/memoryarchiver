@@ -24,7 +24,7 @@ const DATE_LINE_RE = /(\d{1,2})\/(\d{1,2})\/(\d{2})\s+\d{1,2}:\d{2}/;
 
 // PURCHASES section header — tolerates leading OCR noise chars (|, spaces, etc.)
 // Also handles OCR split "PURCHASE S"
-const PURCHASES_RE = /^[^A-Z0-9]*(?:P?U?R?CHASES?|URCHASES?|HASES?)/i;
+const PURCHASES_RE = /^[^A-Z0-9]*PURCHASES?\b/i;
 
 // BALANCE line — OCR mangles the leading asterisks in many ways:
 // "****  BALANCE  62.27"  → canonical
@@ -57,7 +57,9 @@ const MULTI_UNIT_RE = /^(\d+)\s*@/;
 const ITEM_RE = /^(.+?)\s{2,}([\d]+\.[\d]{2})\s*([BTFRbtfr]?)$/;
 const ITEM_LOOSE_RE = /^(.+?)\s+([\d]+\.[\d]{2})\s*([BTFRbtfr]?)$/;
 
-// Lines to always skip regardless of section
+// Lines to always skip regardless of section.
+// IMPORTANT: checked before PURCHASES_RE so that lines like
+// "Purchase Amount : 19.81" cannot re-trigger inItemSection.
 const SKIP_PATTERNS = [
   /^WFM\s*#/i,                              // store header line
   /^\d{1,5}\s+(?:Deerfield|IL-|118th)/i,   // address
@@ -130,6 +132,9 @@ export function parse(rawText) {
       }
     }
 
+    // --- Always-skip patterns (before PURCHASES_RE to prevent false re-entry) ---
+    if (SKIP_PATTERNS.some(re => re.test(trimmed))) continue;
+
     // --- PURCHASES section header → enter item section ---
     if (PURCHASES_RE.test(trimmed)) {
       inItemSection = true;
@@ -155,9 +160,6 @@ export function parse(rawText) {
         continue;
       }
     }
-
-    // --- Always-skip patterns ---
-    if (SKIP_PATTERNS.some(re => re.test(trimmed))) continue;
 
     // Only parse items inside the item section
     if (!inItemSection) continue;
