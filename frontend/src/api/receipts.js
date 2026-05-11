@@ -1,55 +1,26 @@
 import { apiFetch } from './client.js';
 
-export function getReceipts(params = {}) {
+export const importAll = () =>
+  apiFetch('/api/receipts/import-all', { method: 'POST' });
+
+export const getReceipts = (params = {}) => {
   const qs = new URLSearchParams();
-  if (params.vendor) qs.set('vendor', params.vendor);
-  if (params.includeDeleted) qs.set('includeDeleted', '1');
+  if (params.page)      qs.set('page',      params.page);
+  if (params.limit)     qs.set('limit',     params.limit);
+  if (params.store)     qs.set('store',     params.store);
+  if (params.status)    qs.set('status',    params.status);
+  if (params.date_from) qs.set('date_from', params.date_from);
+  if (params.date_to)   qs.set('date_to',   params.date_to);
   const q = qs.toString();
   return apiFetch(`/api/receipts${q ? '?' + q : ''}`);
-}
+};
 
-export function getReceipt(id) {
-  return apiFetch(`/api/receipts/${id}`);
-}
+export const getFlagged = () => apiFetch('/api/receipts/flagged');
 
-export function getReceiptItems(id) {
-  return apiFetch(`/api/receipts/${id}/items`);
-}
+export const getReceipt = (id) => apiFetch(`/api/receipts/${id}`);
 
-export function deleteReceipt(id) {
-  return apiFetch(`/api/receipts/${id}`, { method: 'DELETE' });
-}
+export const deleteReceipt = (id) =>
+  apiFetch(`/api/receipts/${id}`, { method: 'DELETE' });
 
-export function restoreReceipt(id) {
-  return apiFetch(`/api/receipts/${id}/restore`, { method: 'POST' });
-}
-
-export function getVendors() {
-  return apiFetch('/api/receipts/vendors');
-}
-
-export function getItemTypes(vendor) {
-  const qs = vendor ? `?vendor=${encodeURIComponent(vendor)}` : '';
-  return apiFetch(`/api/receipts/item-types${qs}`);
-}
-
-export function getPendingFiles() {
-  return apiFetch('/api/receipts/pending');
-}
-
-export function uploadReceipt(file, vendorKey, force = false) {
-  const form = new FormData();
-  form.append('file', file);
-  form.append('vendorKey', vendorKey);
-  const qs = force ? '?force=1' : '';
-  return apiFetch(`/api/receipts/upload${qs}`, { method: 'POST', body: form });
-}
-
-export function importPath(filename, vendorKey, force = false) {
-  const qs = force ? '?force=1' : '';
-  return apiFetch(`/api/receipts/import-path${qs}`, {
-    method:  'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body:    JSON.stringify({ filename, vendorKey }),
-  });
-}
+export const reImport = (id) =>
+  apiFetch(`/api/receipts/${id}/re-import`, { method: 'POST' });
