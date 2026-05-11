@@ -24,3 +24,12 @@ export const deleteReceipt = (id) =>
 
 export const reImport = (id) =>
   apiFetch(`/api/receipts/${id}/re-import`, { method: 'POST' });
+
+export const patchReceipt = (id, patch) =>
+  apiFetch(`/api/receipts/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(patch),
+  });
+
+export const pdfUrl = (id) => `/api/receipts/${id}/pdf`;

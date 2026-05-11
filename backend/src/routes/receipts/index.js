@@ -212,6 +212,68 @@ export default async function receiptsRoutes(fastify) {
     return reply.send({ ...receipt, items });
   });
 
+  // ── PATCH /api/receipts/:id ───────────────────────────────────────────────
+  fastify.patch('/api/receipts/:id', async (req, reply) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return reply.code(404).send({ error: 'Not found' });
+
+    const receipt = db.prepare('SELECT id FROM receipts WHERE id = ?').get(id);
+    if (!receipt) return reply.code(404).send({ error: 'Not found' });
+
+    const VALID_STATUSES = ['ok', 'partial', 'failed', 'flagged'];
+    const {
+      store_number, store_address, receipt_date, subtotal, tax_amount,
+      total, parse_status, parse_notes,
+    } = req.body ?? {};
+
+    if (parse_status !== undefined && !VALID_STATUSES.includes(parse_status)) {
+      return reply.code(400).send({ error: `parse_status must be one of: ${VALID_STATUSES.join(', ')}` });
+    }
+    if (receipt_date !== undefined && receipt_date !== null && !/^\d{4}-\d{2}-\d{2}$/.test(receipt_date)) {
+      return reply.code(400).send({ error: 'receipt_date must be YYYY-MM-DD or null' });
+    }
+
+    const sets   = [];
+    const params = [];
+
+    if (store_number  !== undefined) { sets.push('store_number = ?');  params.push(store_number); }
+    if (store_address !== undefined) { sets.push('store_address = ?'); params.push(store_address); }
+    if (receipt_date  !== undefined) { sets.push('receipt_date = ?');  params.push(receipt_date); }
+    if (subtotal      !== undefined) { sets.push('subtotal = ?');      params.push(subtotal); }
+    if (tax_amount    !== undefined) { sets.push('tax_amount = ?');    params.push(tax_amount); }
+    if (total         !== undefined) { sets.push('total = ?');         params.push(total); }
+    if (parse_status  !== undefined) { sets.push('parse_status = ?');  params.push(parse_status); }
+    if (parse_notes   !== undefined) { sets.push('parse_notes = ?');   params.push(parse_notes); }
+
+    if (sets.length > 0) {
+      db.prepare(`UPDATE receipts SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
+    }
+
+    const { n } = db.prepare('SELECT COUNT(*) AS n FROM receipt_items WHERE receipt_id = ?').get(id);
+    db.prepare('UPDATE receipts SET item_count = ? WHERE id = ?').run(n, id);
+
+    const updated = db.prepare(`SELECT ${receiptColumns()} FROM receipts WHERE id = ?`).get(id);
+    return reply.send(updated);
+  });
+
+  // ── GET /api/receipts/:id/pdf ─────────────────────────────────────────────
+  fastify.get('/api/receipts/:id/pdf', async (req, reply) => {
+    const id = parseInt(req.params.id, 10);
+    if (!Number.isFinite(id)) return reply.code(404).send({ error: 'Not found' });
+
+    const row = db.prepare('SELECT pdf_path FROM receipts WHERE id = ?').get(id);
+    if (!row) return reply.code(404).send({ error: 'Not found' });
+
+    if (!fs.existsSync(row.pdf_path)) {
+      return reply.code(500).send({ error: `PDF file not found on disk: ${row.pdf_path}` });
+    }
+
+    reply
+      .header('Content-Type', 'application/pdf')
+      .header('Content-Disposition', 'inline');
+    return reply.send(fs.createReadStream(row.pdf_path));
+  });
+
   // ── DELETE /api/receipts/:id ──────────────────────────────────────────────
   fastify.delete('/api/receipts/:id', async (req, reply) => {
     const id = parseInt(req.params.id, 10);

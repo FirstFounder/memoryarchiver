@@ -28,13 +28,17 @@ function StatusBadge({ status }) {
   );
 }
 
-export function RecentImportsTable({ receipts, onRemove, onReImport }) {
+export function RecentImportsTable({ receipts, onRemove, onReImport, onRowClick }) {
   const [expandedId, setExpandedId] = useState(null);
   const [deleting,   setDeleting]   = useState(null);
   const [reimporting, setReimporting] = useState(null);
 
-  function toggleRow(id) {
-    setExpandedId(prev => (prev === id ? null : id));
+  function handleRowClick(r) {
+    if (onRowClick) {
+      onRowClick(r);
+    } else {
+      setExpandedId(prev => (prev === r.id ? null : r.id));
+    }
   }
 
   async function handleDelete(e, id) {
@@ -84,7 +88,7 @@ export function RecentImportsTable({ receipts, onRemove, onReImport }) {
           {receipts.map(r => (
             <React.Fragment key={r.id}>
               <tr
-                onClick={() => toggleRow(r.id)}
+                onClick={() => handleRowClick(r)}
                 className="border-b border-slate-800/60 hover:bg-slate-800/30 transition-colors cursor-pointer select-none"
               >
                 <td className="px-3 py-2 text-slate-300 whitespace-nowrap">{fmtDate(r.receipt_date)}</td>

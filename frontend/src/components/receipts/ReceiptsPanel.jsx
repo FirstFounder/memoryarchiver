@@ -7,6 +7,7 @@ import {
   reImport,
 } from '../../api/receipts.js';
 import { RecentImportsTable } from './RecentImportsTable.jsx';
+import { ReceiptReviewDrawer } from './ReceiptReviewDrawer.jsx';
 
 function ImportResult({ result }) {
   const [errOpen, setErrOpen] = useState(false);
@@ -44,9 +45,12 @@ function ImportResult({ result }) {
 }
 
 function FlaggedSection({ onReImport }) {
-  const [open,     setOpen]     = useState(true);
-  const [flagged,  setFlagged]  = useState(null);
-  const [loading,  setLoading]  = useState(true);
+  const { upsertReceipt } = useReceiptsStore();
+
+  const [open,          setOpen]          = useState(true);
+  const [flagged,       setFlagged]       = useState(null);
+  const [loading,       setLoading]       = useState(true);
+  const [reviewReceipt, setReviewReceipt] = useState(null);
 
   const load = useCallback(() => {
     setLoading(true);
@@ -62,29 +66,44 @@ function FlaggedSection({ onReImport }) {
   if (!flagged?.length) return null;
 
   return (
-    <div className="rounded-xl border border-amber-800/50 bg-amber-950/20">
-      <button
-        onClick={() => setOpen(o => !o)}
-        className="w-full flex items-center justify-between px-4 py-3 text-sm text-amber-300 hover:text-amber-200 transition-colors"
-      >
-        <span className="font-medium">Needs Review ({flagged.length})</span>
-        <span>{open ? '▼' : '▶'}</span>
-      </button>
-      {open && (
-        <div className="px-4 pb-4">
-          <RecentImportsTable
-            receipts={flagged}
-            onRemove={(id) => setFlagged(prev => prev.filter(r => r.id !== id))}
-            onReImport={async (id) => {
-              const updated = await onReImport(id);
-              if (updated) {
-                setFlagged(prev => prev.filter(r => r.id !== id));
-              }
-            }}
-          />
-        </div>
+    <>
+      <div className="rounded-xl border border-amber-800/50 bg-amber-950/20">
+        <button
+          onClick={() => setOpen(o => !o)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm text-amber-300 hover:text-amber-200 transition-colors"
+        >
+          <span className="font-medium">Needs Review ({flagged.length})</span>
+          <span>{open ? '▼' : '▶'}</span>
+        </button>
+        {open && (
+          <div className="px-4 pb-4">
+            <RecentImportsTable
+              receipts={flagged}
+              onRemove={(id) => setFlagged(prev => prev.filter(r => r.id !== id))}
+              onReImport={async (id) => {
+                const updated = await onReImport(id);
+                if (updated) {
+                  setFlagged(prev => prev.filter(r => r.id !== id));
+                }
+              }}
+              onRowClick={setReviewReceipt}
+            />
+          </div>
+        )}
+      </div>
+
+      {reviewReceipt && (
+        <ReceiptReviewDrawer
+          receipt={reviewReceipt}
+          onClose={() => setReviewReceipt(null)}
+          onSaved={(updated) => {
+            upsertReceipt(updated);
+            setReviewReceipt(null);
+            load();
+          }}
+        />
       )}
-    </div>
+    </>
   );
 }
 
