@@ -15,10 +15,11 @@ const WFM_STORES = {
   27: '7145 118th Avenue, Kenosha WI',
 };
 
-// Store number: "WFM #NN" or common OCR variants (WEM, WiM, WIM, etc.)
-// Middle char: E/F/i/I common substitutions for F
-// Last char: M always reads as M
-const STORE_RE = /W[EFiI][FM]\s*#\s*0*(\d+)/i;
+// Store number: "WFM #NN" and common OCR variants.
+// WFM is frequently misread as WEM, WiM, WEKM, HEM, etc.
+// Strategy: match either W + 1-3 letters, or any 2-4 letters ending in M,
+// followed by #NN. The store number itself is the reliable anchor.
+const STORE_RE = /(?:W[A-Z]{1,3}|[A-Z]{2,4}M)\s*#\s*0*(\d+)/i;
 
 // Date line: MM/DD/YY HH:MM — the timestamp line at receipt bottom.
 // Must have time component to avoid matching approval codes.
@@ -63,7 +64,8 @@ const ITEM_LOOSE_RE = /^(.+?)\s+([\d]+\.[\d]{2})\s*([BTFRbtfr]?)$/;
 // NOTE: BALANCE and PURCHASES checks happen before this block in the loop,
 // so these patterns cannot accidentally suppress those critical lines.
 const SKIP_PATTERNS = [
-  /^W[EFiI][FM]\s*#/i,                     // store header line (WFM/WEM/WiM variants)
+  // Store header line — matches WFM/WEM/WEKM/HEM #NN variants
+  /(?:W[A-Z]{1,3}|[A-Z]{2,4}M)\s*#\s*\d/i,
   /^\d{1,5}\s+(?:Deerfield|IL-|118th)/i,   // address
   /^(?:Buffalo Grove|Lakemoor|Kenosha)/i,   // city
   /^(?:IL|WI)\s*$/i,                        // state alone
