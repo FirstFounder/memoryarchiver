@@ -86,7 +86,7 @@ const SKIP_PATTERNS = [
  */
 export function parse(rawText) {
   // Must contain PURCHASES (possibly split by OCR noise)
-  if (!/PURCHASES?\s*S?/i.test(rawText)) return null;
+  if (!/(?:PURCHASES?|URCHASES?|RCHASES?|CHASES?)/i.test(rawText)) return null;
 
   const result = {
     store_number: null,
