@@ -16,75 +16,66 @@ const WFM_STORES = {
 };
 
 // Store number: specifically "WFM #NN" or "WFM#NN"
-// Must anchor to WFM to avoid false matches on card numbers / approval codes.
 const STORE_RE = /WFM\s*#\s*0*(\d+)/i;
 
-// Date line: MM/DD/YY HH:MM or MM/DD/YYYY HH:MM at end of receipt.
-// The date is always on the timestamp line: "11/26/25 01:25pm 42 81 104 781"
-// Two-digit years only (WFM receipts use YY not YYYY).
-// We use a strict pattern: exactly MM/DD/YY followed by space and time.
+// Date line: MM/DD/YY HH:MM — the timestamp line at receipt bottom.
+// Must have time component to avoid matching approval codes.
 const DATE_LINE_RE = /(\d{1,2})\/(\d{1,2})\/(\d{2})\s+\d{1,2}:\d{2}/;
 
-// Balance line: "**** BALANCE  62.27" — this is the subtotal
-const BALANCE_RE = /^\*+\s*BALANCE\s+([\d]+\.[\d]{2})/i;
+// PURCHASES section header — tolerates leading OCR noise chars (|, spaces, etc.)
+// Also handles OCR split "PURCHASE S"
+const PURCHASES_RE = /^[^A-Z0-9]*PURCHASES?\s*S?\s*$/i;
 
-// TAX inline line: "TAX  0.50" — a line that is just TAX + amount
+// BALANCE line — OCR mangles the leading asterisks in many ways:
+// "****  BALANCE  62.27"  → canonical
+// "«x«* BALANCE 9.93"    → non-ASCII noise
+// "2 ER BALANCE 14.16"   → fully garbled prefix
+// "xxx% BALANCE 121.98"  → garbled prefix
+// "ome BALANCE gs 52."   → garbled amount too
+// Strategy: if BALANCE appears anywhere on the line, extract the LAST
+// digit sequence that looks like NN.NN as the subtotal.
+const BALANCE_LINE_RE = /BALANCE/i;
+const AMOUNT_RE = /(\d+\.\d{2})/g;
+
+// TAX inline line
 const TAX_RE = /^TAX\s+([\d]+\.[\d]{2})/i;
 
-// COUPONS section header and coupon lines — skip entirely
-const COUPONS_HEADER_RE = /^COUPONS\s*$/i;
-const COUPON_LINE_RE = /^(MC|MFR|INSTANT)\s+/i;
-
-// Purchase/cashback/total summary lines in footer — skip
-const FOOTER_RE = /^(Purchase Amount|Cashback Amount|Total Amount|Debit|CHANGE|TOTAL TAX|TOTAL NUMBER|Woodman'?s Shopper)/i;
-
-// Approval / card lines — skip
-const APPROVAL_RE = /^[\d]+-[\d]+-[\d]+-APPROVED$/i;
-const MASKED_CARD_RE = /^\*{4,}/;
-
-// Weight deal line preceding an item: "0.56lb @ 1.49/lb" or "0.071b @ 1.49/1b"
-// Note: tesseract often reads "lb" as "1b" — handle both.
+// Weight deal line preceding a WT item: "0.56lb @ 1.49/lb"
+// tesseract reads "lb" as "1b" — handle both.
 const WEIGHT_DEAL_RE = /^([\d.]+)\s*(?:lb|1b)\s*@\s*([\d.]+)\s*\/\s*(?:lb|1b)/i;
 
 // WT prefix on item line: "WT   SERRANO PEPPERS   0.10B"
 const WT_PREFIX_RE = /^WT\s+/i;
 
-// Multi-unit deal line: "2 @ 1.99" or "4 @ 2/ 1.00" or "2 @ 2.79BUY 2/ 5.00SAVE 0.58"
-// We use these to annotate the NEXT item(s), not as items themselves.
-const MULTI_UNIT_RE = /^(\d+)\s*@\s*([\d.]+)/;
+// Multi-unit deal line: "2 @ 1.99" or "4 @ 2/ 1.00"
+// Must start with digits then @
+const MULTI_UNIT_RE = /^(\d+)\s*@/;
 
-// Item line: description followed by price+code.
-// Price code: B, T, F, R (optional). OCR sometimes reads B as 8 or 6.
-// We use a looser right-anchor: price at end of line after whitespace.
-// The key insight: price is always rightmost, format NN.NN optionally followed by [BTFR].
+// Item line: description + price + optional code at end of line.
+// Two patterns: strict (2+ spaces) and loose (1+ space).
+// Price code B/T/F/R — OCR sometimes produces lowercase.
 const ITEM_RE = /^(.+?)\s{2,}([\d]+\.[\d]{2})\s*([BTFRbtfr]?)$/;
-
-// Looser item match for lines where OCR collapsed spaces:
-// If line ends in " N.NNX" or " N.NN" we try to extract it.
 const ITEM_LOOSE_RE = /^(.+?)\s+([\d]+\.[\d]{2})\s*([BTFRbtfr]?)$/;
 
-// Skip patterns — lines that are definitely not items
+// Lines to always skip regardless of section
 const SKIP_PATTERNS = [
-  /^PURCHASES\s*$/i,           // section header (no amount)
-  /^PURCHASE\s+S\s*$/i,        // OCR split "PURCHASE S"
-  /^\*+\s*BALANCE/i,           // balance line (captured separately)
-  /^WFM\s*#/i,                 // store header
-  /^[\d]+\s+(?:Deerfield|IL-|118th|Avenue|Pkwy)/i, // address
-  /^(?:Buffalo Grove|Lakemoor|Kenosha)/i,           // city
-  /^(?:IL|WI)\s*$/i,           // state alone
-  /^\*{4,}/,                   // masked card / approval
-  /^[\d]{6}-[\d]{6}-[\d]{3}-/,// approval code
+  /^WFM\s*#/i,                              // store header line
+  /^\d{1,5}\s+(?:Deerfield|IL-|118th)/i,   // address
+  /^(?:Buffalo Grove|Lakemoor|Kenosha)/i,   // city
+  /^(?:IL|WI)\s*$/i,                        // state alone
+  /^[*«x~\s\d]{0,6}\*{2,}/,               // masked card (2+ asterisks)
+  /^[\d]{6,}-[\d]{4,}-[\d]{3}-/,           // approval code NNN-NNN-NNN-APPROVED
+  /APPROVED/i,                              // any approval line
   /^(?:Purchase|Cashback|Total)\s+Amount/i,
-  /^Debit\s+[\d]/i,
-  /^CHANGE\s+[\d]/i,
+  /^Debit\s+(?:Receipt|\d)/i,
+  /^CHANGE\s+[\d.]/i,
   /^TOTAL\s+(?:TAX|NUMBER)/i,
   /^Woodman/i,
-  /^[\d]{10,}$/,               // barcode
-  /^[~\-]{4,}$/,               // separator lines
+  /^[\d]{10,}$/,                            // barcode / shopper ID
+  /^[~\-=]{4,}$/,                          // separator lines
   /^COUPONS\s*$/i,
-  /^(?:MC|MFR|INSTANT)\s+/i,   // coupon lines
-  /^Debit\s+Receipt/i,
-  /^\d{1,2}\/\d{1,2}\/\d{2}\s+\d{1,2}:\d{2}/,  // timestamp (date line, captured separately)
+  /^(?:MC|MFR|INSTANT)\s+/i,              // coupon lines
+  /^\d{1,2}\/\d{1,2}\/\d{2}\s+\d{1,2}:\d{2}/, // timestamp
 ];
 
 /**
@@ -92,10 +83,8 @@ const SKIP_PATTERNS = [
  * @returns {object|null}
  */
 export function parse(rawText) {
-  // Must contain PURCHASES (possibly split by OCR as "PURCHASE S")
-  if (!rawText.includes('PURCHASES') && !/PURCHASE\s+S/i.test(rawText)) {
-    return null;
-  }
+  // Must contain PURCHASES (possibly split by OCR noise)
+  if (!/PURCHASES?\s*S?/i.test(rawText)) return null;
 
   const result = {
     store_number: null,
@@ -107,55 +96,56 @@ export function parse(rawText) {
     total: null,
   };
 
-  let pendingWeightDeal = null;   // { weight, rate } from a weight deal line
-  let pendingMultiUnit = null;    // { qty, unitPrice } from a multi-unit line
-  let inItemSection = false;      // true after PURCHASES header, false after BALANCE
+  let pendingWeightDeal = null;  // weight deal line seen, waiting for WT item
+  let pendingMultiUnit  = null;  // multi-unit deal line, annotates next item
+  let inItemSection     = false; // true between PURCHASES and BALANCE
 
   for (const rawLine of rawText.split('\n')) {
-    const line = rawLine.trimEnd();
+    const line    = rawLine.trimEnd();
     const trimmed = line.trim();
     if (!trimmed) continue;
 
-    // Store number — only match WFM #NN pattern
+    // --- Store number ---
     if (result.store_number === null) {
       const sm = trimmed.match(STORE_RE);
       if (sm) {
         const num = parseInt(sm[1], 10);
-        result.store_number = num;
+        result.store_number  = num;
         result.store_address = WFM_STORES[num] ?? null;
         continue;
       }
     }
 
-    // Date — tight pattern, only matches the timestamp line
+    // --- Date (tight: requires time component) ---
     if (result.date === null) {
       const dm = trimmed.match(DATE_LINE_RE);
       if (dm) {
         const month = dm[1].padStart(2, '0');
-        const day = dm[2].padStart(2, '0');
-        const year = `20${dm[3]}`;
+        const day   = dm[2].padStart(2, '0');
+        const year  = `20${dm[3]}`;
         result.date = `${year}-${month}-${day}`;
         continue;
       }
     }
 
-    // PURCHASES section header — enter item section
-    if (/^PURCHASES\s*$/i.test(trimmed) || /^PURCHASE\s+S\s*$/i.test(trimmed)) {
+    // --- PURCHASES section header → enter item section ---
+    if (PURCHASES_RE.test(trimmed)) {
       inItemSection = true;
       continue;
     }
 
-    // BALANCE line — exit item section, capture subtotal
-    {
-      const m = trimmed.match(BALANCE_RE);
-      if (m) {
-        result.subtotal = parseFloat(m[1]);
-        inItemSection = false;
-        continue;
+    // --- BALANCE line → capture subtotal, exit item section ---
+    if (BALANCE_LINE_RE.test(trimmed)) {
+      // Extract the last NN.NN amount on the line as the subtotal
+      const amounts = [...trimmed.matchAll(AMOUNT_RE)].map(m => parseFloat(m[1]));
+      if (amounts.length > 0) {
+        result.subtotal = amounts[amounts.length - 1];
       }
+      inItemSection = false;
+      continue;
     }
 
-    // TAX inline line
+    // --- TAX ---
     {
       const m = trimmed.match(TAX_RE);
       if (m) {
@@ -164,50 +154,37 @@ export function parse(rawText) {
       }
     }
 
-    // Skip footer / header / noise lines
-    if (SKIP_PATTERNS.some(re => re.test(trimmed))) {
-      continue;
-    }
+    // --- Always-skip patterns ---
+    if (SKIP_PATTERNS.some(re => re.test(trimmed))) continue;
 
-    // Only parse items within the PURCHASES section
+    // Only parse items inside the item section
     if (!inItemSection) continue;
 
-    // Weight deal line: "0.56lb @ 1.49/lb"
+    // --- Weight deal line: "0.071b @ 1.49/1b" ---
     {
       const m = trimmed.match(WEIGHT_DEAL_RE);
       if (m) {
-        pendingWeightDeal = {
-          weight: parseFloat(m[1]),
-          rate: parseFloat(m[2]),
-          description: null,
-        };
+        pendingWeightDeal = { weight: parseFloat(m[1]), rate: parseFloat(m[2]) };
         continue;
       }
     }
 
-    // Multi-unit line: "2 @ 1.99" or "4 @ 2/ 1.00"
-    {
+    // --- Multi-unit deal line: "2 @ 1.99" or "4 @ 2/ 1.00" ---
+    // Only treat as deal if line starts with digits+@ (no description before it)
+    if (MULTI_UNIT_RE.test(trimmed) && /^[\d]+\s*@/.test(trimmed)) {
       const m = trimmed.match(MULTI_UNIT_RE);
-      // Only treat as multi-unit if the line is JUST the deal (no item description before it)
-      // A line like "2 @ 1.99" with nothing before the quantity is a deal line.
-      // Distinguish from item lines that happen to start with a number.
-      if (m && /^[\d]+\s*@/.test(trimmed)) {
-        pendingMultiUnit = {
-          qty: parseInt(m[1], 10),
-          raw: trimmed,
-        };
-        continue;
-      }
+      pendingMultiUnit = { qty: parseInt(m[1], 10) };
+      continue;
     }
 
-    // WT-prefixed item line: "WT   SERRANO PEPPERS   0.10B"
+    // --- WT-prefixed weight item line: "WT  SERRANO PEPPERS  0.10B" ---
     if (WT_PREFIX_RE.test(trimmed)) {
-      const withoutWT = trimmed.replace(WT_PREFIX_RE, '').trim();
-      const itemMatch = withoutWT.match(ITEM_RE) || withoutWT.match(ITEM_LOOSE_RE);
+      const withoutWT   = trimmed.replace(WT_PREFIX_RE, '').trim();
+      const itemMatch   = withoutWT.match(ITEM_RE) || withoutWT.match(ITEM_LOOSE_RE);
       if (itemMatch) {
         const description = itemMatch[1].trim();
-        const price = parseFloat(itemMatch[2]);
-        const price_code = itemMatch[3].toUpperCase() || null;
+        const price       = parseFloat(itemMatch[2]);
+        const price_code  = itemMatch[3].toUpperCase() || null;
         const item = {
           description,
           price,
@@ -217,25 +194,25 @@ export function parse(rawText) {
           unit_price: null,
         };
         if (pendingWeightDeal) {
-          item.weight = pendingWeightDeal.weight;
+          item.weight      = pendingWeightDeal.weight;
           item.rate_per_lb = pendingWeightDeal.rate;
           pendingWeightDeal = null;
         }
         result.items.push(item);
         pendingMultiUnit = null;
-        continue;
       }
+      continue;
     }
 
-    // Regular item line
+    // --- Regular item line ---
     {
       const itemMatch = trimmed.match(ITEM_RE) || trimmed.match(ITEM_LOOSE_RE);
       if (itemMatch) {
         const description = itemMatch[1].trim();
-        const price = parseFloat(itemMatch[2]);
-        const price_code = itemMatch[3].toUpperCase() || null;
+        const price       = parseFloat(itemMatch[2]);
+        const price_code  = itemMatch[3].toUpperCase() || null;
 
-        // Skip lines where description looks like noise (very short or all symbols)
+        // Skip descriptions that are too short or look like noise
         if (description.length < 2) continue;
 
         const item = {
@@ -248,15 +225,14 @@ export function parse(rawText) {
         };
 
         if (pendingWeightDeal) {
-          // This shouldn't happen (weight items use WT prefix) but handle gracefully
           item.is_weight_item = true;
-          item.weight = pendingWeightDeal.weight;
-          item.rate_per_lb = pendingWeightDeal.rate;
-          pendingWeightDeal = null;
+          item.weight         = pendingWeightDeal.weight;
+          item.rate_per_lb    = pendingWeightDeal.rate;
+          pendingWeightDeal   = null;
         }
 
         if (pendingMultiUnit) {
-          item.quantity = pendingMultiUnit.qty;
+          item.quantity    = pendingMultiUnit.qty;
           pendingMultiUnit = null;
         }
 
@@ -265,17 +241,14 @@ export function parse(rawText) {
       }
     }
 
-    // Line didn't match anything useful — clear pending weight deal
-    // (it was for a line that couldn't be parsed as an item)
+    // Line didn't match — clear stale weight deal
     if (pendingWeightDeal && trimmed.length > 3) {
       pendingWeightDeal = null;
     }
   }
 
-  // A receipt with no items and no store number is probably a false positive
-  if (result.items.length === 0 && result.store_number === null) {
-    return null;
-  }
+  // A result with no items and no store number is likely a false positive
+  if (result.items.length === 0 && result.store_number === null) return null;
 
   return result;
 }
