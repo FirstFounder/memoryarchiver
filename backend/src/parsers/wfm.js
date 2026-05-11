@@ -76,6 +76,8 @@ const SKIP_PATTERNS = [
   /^COUPONS\s*$/i,
   /^(?:MC|MFR|INSTANT)\s+/i,              // coupon lines
   /^\d{1,2}\/\d{1,2}\/\d{2}\s+\d{1,2}:\d{2}/, // timestamp
+  /^Debit\b/i,          // "Debit (" or "Debit 143.62"
+  /^CHANG[EF]\b/i,      // "CHANGE", "CHANGF" (OCR variant)
 ];
 
 /**
