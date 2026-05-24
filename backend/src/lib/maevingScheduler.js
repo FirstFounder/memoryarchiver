@@ -206,11 +206,19 @@ async function runScheduledSessions() {
       );
     }
     db.prepare(`UPDATE maeving_sessions SET status = 'active' WHERE id = ?`).run(session.id);
-    schedulerLogger?.info(
-      { sessionId: session.id },
-      'Maeving scheduler: session %d activated',
-      session.id,
-    );
+    if (session.soc_target_pct === 100) {
+      schedulerLogger?.info(
+        { sessionId: session.id },
+        'Maeving scheduler: session %d is 100%% target — monitoring for charger auto-shutoff only, no ETA cutoff',
+        session.id,
+      );
+    } else {
+      schedulerLogger?.info(
+        { sessionId: session.id },
+        'Maeving scheduler: session %d activated',
+        session.id,
+      );
+    }
   }
 }
 

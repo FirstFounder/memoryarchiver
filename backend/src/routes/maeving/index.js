@@ -1,12 +1,19 @@
 import config from '../../config.js';
 import db from '../../db/client.js';
-import { getAllDeviceStates, getDeviceState } from '../../lib/maevingMqtt.js';
+import { getAllDeviceStates, getDeviceState, invalidateActiveSessionCache } from '../../lib/maevingMqtt.js';
 import { setPlugState } from '../../lib/maevingControl.js';
 import {
   computeOvernightStart,
   getFallbackScheduledStartAt,
   scheduleOvernightRetry,
 } from '../../lib/maevingScheduler.js';
+import {
+  getConfig,
+  hasPendingCalibration,
+  recordCalibrationEntry,
+  analyzeTaper,
+  recordSessionComplete,
+} from '../../lib/maevingCalibration.js';
 
 function readingsStats(deviceId, startedAt) {
   const rows = db.prepare(`
@@ -132,6 +139,14 @@ export default async function maevingRoutes(fastify) {
       trip_duration_min,
       charge_mode,
       departure_time,
+      leg_1_trip_id,
+      leg_1_duration_min,
+      leg_2_trip_id,
+      leg_2_duration_min,
+      leg_3_trip_id,
+      leg_3_duration_min,
+      leg_4_trip_id,
+      leg_4_duration_min,
     } = req.body ?? {};
     if (!device_id) return reply.code(400).send({ error: 'device_id required' });
 
@@ -147,8 +162,12 @@ export default async function maevingRoutes(fastify) {
     const result = db.prepare(`
       INSERT INTO maeving_sessions
         (device_id, started_at, soc_start_pct, soc_target_pct, status,
-         trip_id, trip_duration_min, charge_mode, departure_time)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+         trip_id, trip_duration_min, charge_mode, departure_time,
+         leg_1_trip_id, leg_1_duration_min,
+         leg_2_trip_id, leg_2_duration_min,
+         leg_3_trip_id, leg_3_duration_min,
+         leg_4_trip_id, leg_4_duration_min)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       device_id,
       now,
@@ -159,7 +178,24 @@ export default async function maevingRoutes(fastify) {
       trip_duration_min ?? null,
       mode,
       departure_time ?? null,
+      leg_1_trip_id ?? null,
+      leg_1_duration_min ?? null,
+      leg_2_trip_id ?? null,
+      leg_2_duration_min ?? null,
+      leg_3_trip_id ?? null,
+      leg_3_duration_min ?? null,
+      leg_4_trip_id ?? null,
+      leg_4_duration_min ?? null,
     );
+
+    invalidateActiveSessionCache(device_id);
+
+    if (soc_target_pct === 100) {
+      fastify.log.info(
+        { sessionId: result.lastInsertRowid },
+        'Maeving: 100%% target session started — monitoring for charger auto-shutoff',
+      );
+    }
 
     return reply.code(201).send(
       db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(result.lastInsertRowid),
@@ -306,6 +342,66 @@ export default async function maevingRoutes(fastify) {
       session.id,
     );
 
+    invalidateActiveSessionCache(session.device_id);
+
+    if (session.soc_target_pct === 100) {
+      recordSessionComplete(session.id);
+    } else {
+      const cfg = getConfig();
+      if (cfg.calibration_mode === 0) {
+        recordSessionComplete(session.id);
+      }
+    }
+
     return reply.send(db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(session.id));
+  });
+
+  // POST /api/maeving/sessions/:id/calibrate
+  fastify.post('/api/maeving/sessions/:id/calibrate', async (req, reply) => {
+    const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(req.params.id);
+    if (!session) return reply.code(404).send({ error: 'not found' });
+
+    const { actual_soc_pct } = req.body ?? {};
+    if (actual_soc_pct == null || actual_soc_pct < 0 || actual_soc_pct > 100) {
+      return reply.code(400).send({ error: 'actual_soc_pct must be 0–100' });
+    }
+    if (!['complete', 'charger_complete'].includes(session.status)) {
+      return reply.code(400).send({ error: 'session must be complete or charger_complete' });
+    }
+    if (session.calibration_complete) {
+      return reply.code(400).send({ error: 'session already calibrated' });
+    }
+
+    try {
+      const calibration = recordCalibrationEntry(session.id, actual_soc_pct);
+      const cfg = getConfig();
+      return reply.send({
+        session: db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(session.id),
+        calibration: { ...calibration, observation_count: cfg.observation_count },
+      });
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // GET /api/maeving/config
+  fastify.get('/api/maeving/config', async (_req, reply) => {
+    const cfg = getConfig();
+    const pending = hasPendingCalibration();
+    const history = JSON.parse(cfg.capacity_history_json || '[]');
+    return reply.send({
+      ...cfg,
+      hasPendingCalibration: pending !== null,
+      pendingSession: pending,
+      capacityHistory: history.slice(-10),
+    });
+  });
+
+  // GET /api/maeving/sessions/:id/taper
+  fastify.get('/api/maeving/sessions/:id/taper', async (req, reply) => {
+    const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(req.params.id);
+    if (!session) return reply.code(404).send({ error: 'not found' });
+    if (session.soc_target_pct !== 100) return reply.send({ error: 'not_a_full_charge' });
+    return reply.send(analyzeTaper(session.id));
   });
 }

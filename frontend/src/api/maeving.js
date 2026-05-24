@@ -73,3 +73,19 @@ export async function getSessions(params = {}) {
 export async function getSession(id) {
   return apiFetch(`/api/maeving/sessions/${id}`);
 }
+
+export async function calibrateSession(id, actualSocPct) {
+  return apiFetch(`/api/maeving/sessions/${id}/calibrate`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ actual_soc_pct: actualSocPct }),
+  });
+}
+
+export async function getConfig() {
+  return apiFetch('/api/maeving/config');
+}
+
+export async function getSessionTaper(id) {
+  return apiFetch(`/api/maeving/sessions/${id}/taper`);
+}
