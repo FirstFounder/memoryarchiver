@@ -200,6 +200,17 @@ export default async function maevingRoutes(fastify) {
              baselineState.voltage ?? 0, baselineState.aenergy_total ?? 0);
     }
 
+    if (mode === 'now') {
+      const device = db.prepare('SELECT * FROM maeving_devices WHERE id = ?').get(device_id);
+      if (device) {
+        try {
+          await setPlugState(device.ip, true);
+        } catch (err) {
+          fastify.log.warn({ err }, 'Maeving: failed to turn on plug for device %d on session start', device_id);
+        }
+      }
+    }
+
     if (soc_target_pct === 100) {
       fastify.log.info(
         { sessionId: result.lastInsertRowid },

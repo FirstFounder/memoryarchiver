@@ -80,6 +80,17 @@ export function startMaevingMqtt(logger) {
         if (err) logger.error({ err }, 'Maeving MQTT subscribe error: %s', topic);
       });
     }
+
+    for (const device of devices) {
+      const activeSession = db.prepare(
+        "SELECT id FROM maeving_sessions WHERE device_id = ? AND status IN ('active', 'scheduled')"
+      ).get(device.id);
+      if (!activeSession) {
+        setPlugState(device.ip, false).catch(err =>
+          logger.warn({ err }, 'Maeving startup: failed to turn off plug for device %d', device.id)
+        );
+      }
+    }
   });
 
   client.on('message', (topic, message) => {
