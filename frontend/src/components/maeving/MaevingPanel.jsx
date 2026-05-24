@@ -724,7 +724,7 @@ export function MaevingPanel() {
                 </div>
                 <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
                   <SOCRoller
-                    min={50}
+                    min={20}
                     max={100}
                     value={socTarget}
                     onChange={setSocTarget}
