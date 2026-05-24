@@ -8,6 +8,7 @@ import {
   getSessionTaper,
   getTrips,
   scheduleOvernight,
+  skipCalibration,
   startSession,
   stopSession,
 } from '../../api/maeving.js';
@@ -136,6 +137,7 @@ export function MaevingPanel() {
   const [calibrateSOC, setCalibrateSOC] = useState(100);
   const [calibrationResult, setCalibrationResult] = useState(null);
   const [calibrating, setCalibrating] = useState(false);
+  const [skipping, setSkipping] = useState(false);
   const [taperData, setTaperData] = useState(null);
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
   const detailsIntervalRef = useRef(null);
@@ -382,6 +384,20 @@ export function MaevingPanel() {
     }
   }
 
+  async function handleSkipCalibration() {
+    if (!pendingCalibration || skipping) return;
+    setSkipping(true);
+    setError('');
+    try {
+      await skipCalibration(pendingCalibration.id);
+      await refresh();
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setSkipping(false);
+    }
+  }
+
   async function handleCalibrate() {
     if (!pendingCalibration || calibrating) return;
     setCalibrating(true);
@@ -430,37 +446,68 @@ export function MaevingPanel() {
                 {formatDate(pendingCalibration.started_at)}
               </span>.
             </p>
-            <div className="mb-4 rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
-              <SOCRoller
-                min={1}
-                max={100}
-                value={calibrateSOC}
-                onChange={setCalibrateSOC}
-                label="Observed SOC"
-              />
-            </div>
-            {error && (
-              <div className="mb-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
-                {error}
-              </div>
-            )}
-            {calibrationResult ? (
-              <div className="rounded-2xl border border-emerald-700/50 bg-emerald-900/20 px-4 py-3 text-sm text-emerald-300">
-                Pack estimate updated:{' '}
-                {Math.round(calibrationResult.prevCapacity).toLocaleString()} Wh →{' '}
-                {Math.round(calibrationResult.newCapacity).toLocaleString()} Wh (
-                {calibrationResult.delta >= 0 ? '+' : ''}
-                {Math.round(calibrationResult.delta)} Wh)
-              </div>
+            {pendingCalibration.wh_delivered == null ? (
+              <>
+                <div className="mb-4 rounded-2xl border border-amber-700/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
+                  No energy data recorded for this session — capacity estimate cannot be updated.
+                </div>
+                {error && (
+                  <div className="mb-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+                    {error}
+                  </div>
+                )}
+                <button
+                  type="button"
+                  disabled
+                  title="Cannot calibrate without energy data"
+                  className="mb-3 min-h-12 w-full cursor-not-allowed rounded-2xl bg-amber-700/60 px-6 text-base font-semibold text-amber-100 opacity-40"
+                >
+                  Save Observed SOC
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSkipCalibration}
+                  disabled={skipping}
+                  className="min-h-12 w-full rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
+                >
+                  {skipping ? 'Skipping…' : 'Skip & Continue'}
+                </button>
+              </>
             ) : (
-              <button
-                type="button"
-                onClick={handleCalibrate}
-                disabled={calibrating}
-                className="min-h-12 w-full rounded-2xl bg-amber-700/60 px-6 text-base font-semibold text-amber-100 transition-colors hover:bg-amber-700/80 disabled:opacity-60"
-              >
-                {calibrating ? 'Saving…' : 'Save Observed SOC'}
-              </button>
+              <>
+                <div className="mb-4 rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
+                  <SOCRoller
+                    min={1}
+                    max={100}
+                    value={calibrateSOC}
+                    onChange={setCalibrateSOC}
+                    label="Observed SOC"
+                  />
+                </div>
+                {error && (
+                  <div className="mb-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+                    {error}
+                  </div>
+                )}
+                {calibrationResult ? (
+                  <div className="rounded-2xl border border-emerald-700/50 bg-emerald-900/20 px-4 py-3 text-sm text-emerald-300">
+                    Pack estimate updated:{' '}
+                    {Math.round(calibrationResult.prevCapacity).toLocaleString()} Wh →{' '}
+                    {Math.round(calibrationResult.newCapacity).toLocaleString()} Wh (
+                    {calibrationResult.delta >= 0 ? '+' : ''}
+                    {Math.round(calibrationResult.delta)} Wh)
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleCalibrate}
+                    disabled={calibrating}
+                    className="min-h-12 w-full rounded-2xl bg-amber-700/60 px-6 text-base font-semibold text-amber-100 transition-colors hover:bg-amber-700/80 disabled:opacity-60"
+                  >
+                    {calibrating ? 'Saving…' : 'Save Observed SOC'}
+                  </button>
+                )}
+              </>
             )}
             <p className="mt-3 text-center text-sm text-slate-500">
               Complete calibration to start next session.

@@ -36,7 +36,7 @@ function sessionReadingsStats(deviceId, startedAt) {
   const rows = db.prepare(`
     SELECT apower, aenergy_total
     FROM maeving_readings
-    WHERE device_id = ? AND recorded_at >= ?
+    WHERE device_id = ? AND recorded_at >= datetime(?)
     ORDER BY recorded_at ASC
   `).all(deviceId, startedAt);
 
@@ -139,7 +139,7 @@ export function startMaevingMqtt(logger) {
           if (sess) {
             const firstReading = db.prepare(`
               SELECT aenergy_total FROM maeving_readings
-              WHERE device_id = ? AND recorded_at >= ?
+              WHERE device_id = ? AND recorded_at >= datetime(?)
               ORDER BY recorded_at ASC LIMIT 1
             `).get(device.id, sess.started_at);
             sess._firstAenergy = firstReading?.aenergy_total ?? null;

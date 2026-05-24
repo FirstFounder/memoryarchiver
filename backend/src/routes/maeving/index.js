@@ -13,13 +13,14 @@ import {
   recordCalibrationEntry,
   analyzeTaper,
   recordSessionComplete,
+  skipCalibration,
 } from '../../lib/maevingCalibration.js';
 
 function readingsStats(deviceId, startedAt) {
   const rows = db.prepare(`
     SELECT apower, aenergy_total
     FROM maeving_readings
-    WHERE device_id = ? AND recorded_at >= ?
+    WHERE device_id = ? AND recorded_at >= datetime(?)
     ORDER BY recorded_at ASC
   `).all(deviceId, startedAt);
 
@@ -190,6 +191,15 @@ export default async function maevingRoutes(fastify) {
 
     invalidateActiveSessionCache(device_id);
 
+    const baselineState = getDeviceState(device_id);
+    if (baselineState) {
+      db.prepare(`
+        INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(device_id, baselineState.apower ?? 0, baselineState.current ?? 0,
+             baselineState.voltage ?? 0, baselineState.aenergy_total ?? 0);
+    }
+
     if (soc_target_pct === 100) {
       fastify.log.info(
         { sessionId: result.lastInsertRowid },
@@ -316,6 +326,15 @@ export default async function maevingRoutes(fastify) {
       );
     }
 
+    const finalState = getDeviceState(session.device_id);
+    if (finalState) {
+      db.prepare(`
+        INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
+        VALUES (?, ?, ?, ?, ?)
+      `).run(session.device_id, finalState.apower ?? 0, finalState.current ?? 0,
+             finalState.voltage ?? 0, finalState.aenergy_total ?? 0);
+    }
+
     const now = new Date().toISOString();
     const stats = readingsStats(session.device_id, session.started_at);
 
@@ -379,6 +398,20 @@ export default async function maevingRoutes(fastify) {
         session: db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(session.id),
         calibration: { ...calibration, observation_count: cfg.observation_count },
       });
+    } catch (err) {
+      return reply.code(400).send({ error: err.message });
+    }
+  });
+
+  // POST /api/maeving/sessions/:id/calibrate-skip
+  fastify.post('/api/maeving/sessions/:id/calibrate-skip', async (req, reply) => {
+    const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(req.params.id);
+    if (!session) return reply.code(404).send({ error: 'not found' });
+    if (session.calibration_complete) return reply.code(400).send({ error: 'session already calibrated' });
+
+    try {
+      const updated = skipCalibration(session.id);
+      return reply.send(updated);
     } catch (err) {
       return reply.code(400).send({ error: err.message });
     }

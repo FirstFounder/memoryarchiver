@@ -89,3 +89,9 @@ export async function getConfig() {
 export async function getSessionTaper(id) {
   return apiFetch(`/api/maeving/sessions/${id}/taper`);
 }
+
+export async function skipCalibration(id) {
+  return apiFetch(`/api/maeving/sessions/${id}/calibrate-skip`, {
+    method: 'POST',
+  });
+}

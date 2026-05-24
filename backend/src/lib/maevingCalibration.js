@@ -123,6 +123,22 @@ export function isCalibrationBlocked() {
   return hasPendingCalibration() !== null;
 }
 
+export function skipCalibration(sessionId) {
+  const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(sessionId);
+  if (!session) throw new Error('session not found');
+  if (session.calibration_complete) throw new Error('session already calibrated');
+
+  db.prepare(`
+    UPDATE maeving_sessions
+    SET calibration_complete = 1
+    WHERE id = ?
+  `).run(sessionId);
+
+  console.log('Maeving: calibration skipped for session %d — no energy data', sessionId);
+
+  return db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(sessionId);
+}
+
 export function analyzeTaper(sessionId) {
   const readings = db.prepare(`
     SELECT * FROM maeving_taper_readings
@@ -137,7 +153,7 @@ export function analyzeTaper(sessionId) {
 
   const allReadings = db.prepare(`
     SELECT apower FROM maeving_readings
-    WHERE device_id = ? AND recorded_at >= ?
+    WHERE device_id = ? AND recorded_at >= datetime(?)
     ORDER BY recorded_at ASC
   `).all(session.device_id, session.started_at);
 
