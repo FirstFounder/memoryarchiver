@@ -97,6 +97,9 @@ const config = Object.freeze({
   receiptsEnabled:  process.env.RECEIPTS_ENABLED === 'true',
   receiptsInputDir: process.env.RECEIPTS_INPUT_DIR ?? '',
 
+  // Maeving RM1S charging tracker
+  maevingEnabled: process.env.MAEVING_ENABLED === 'true',
+
   // TeslaMate MQTT broker (iolo-only)
   teslaMqttEnabled: process.env.TESLA_MQTT_ENABLED === 'true',
   teslaMqttHost:    process.env.TESLA_MQTT_HOST ?? '127.0.0.1',

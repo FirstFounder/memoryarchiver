@@ -32,6 +32,8 @@ import audioRoutes from './routes/audio/index.js';
 import { startAudioWorker, stopAudioWorker } from './worker/audioWorker.js';
 import backupRoutes from './routes/backup.js';
 import receiptsRoutes from './routes/receipts/index.js';
+import maevingRoutes from './routes/maeving/index.js';
+import { startMaevingMqtt, stopMaevingMqtt } from './lib/maevingMqtt.js';
 
 const fastify = Fastify({
   logger: {
@@ -157,6 +159,11 @@ if (config.receiptsEnabled) {
   fastify.log.info('Receipts enabled — receipt routes registered');
 }
 
+if (config.maevingEnabled) {
+  await fastify.register(maevingRoutes);
+  fastify.log.info('Maeving enabled — Maeving routes registered');
+}
+
 // ── Startup ───────────────────────────────────────────────────────────────────
 try {
   await fastify.listen({ port: config.port, host: '0.0.0.0' });
@@ -167,6 +174,7 @@ try {
   if (config.teslaEnabled) startTeslaScheduler().catch((err) => fastify.log.error(err));
   if (config.teslaEnabled && config.teslaMqttEnabled) startTeslaMqtt(fastify.log);
   if (config.audioEnabled) startAudioWorker();
+  if (config.maevingEnabled) startMaevingMqtt(fastify.log);
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);
@@ -182,6 +190,7 @@ const shutdown = async (signal) => {
   if (config.teslaEnabled) stopTeslaScheduler();
   if (config.teslaEnabled && config.teslaMqttEnabled) stopTeslaMqtt();
   if (config.audioEnabled) stopAudioWorker();
+  if (config.maevingEnabled) stopMaevingMqtt();
   await fastify.close();
   process.exit(0);
 };

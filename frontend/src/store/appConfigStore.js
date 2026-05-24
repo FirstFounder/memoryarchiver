@@ -20,6 +20,7 @@ export const useAppConfigStore = create((set) => ({
   squatQuality:    68,
   audioEnabled:    false,
   receiptsEnabled: false,
+  maevingEnabled:  false,
   loaded:          false,
 
   setConfig: (cfg) => set({ ...cfg, loaded: true }),

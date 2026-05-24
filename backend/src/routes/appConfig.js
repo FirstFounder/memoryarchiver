@@ -18,6 +18,7 @@ export default async function appConfigRoute(fastify) {
       squatQuality:    config.squatQuality,
       audioEnabled:    config.audioEnabled,
       receiptsEnabled: config.receiptsEnabled,
+      maevingEnabled:  config.maevingEnabled,
     });
   });
 }
