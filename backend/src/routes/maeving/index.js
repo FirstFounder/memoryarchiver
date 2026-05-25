@@ -374,6 +374,11 @@ export default async function maevingRoutes(fastify) {
       actualCostDollars = (totalRateCents * (stats.wh_delivered / 1000)) / 100;
     }
 
+    if (device.cost_free) {
+      actualCostDollars = 0;
+      priceAvgCents = null;
+    }
+
     db.prepare(`
       UPDATE maeving_sessions
       SET ended_at               = ?,
