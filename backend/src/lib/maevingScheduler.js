@@ -1,6 +1,7 @@
 import db from '../db/client.js';
 import { setPlugState } from './maevingControl.js';
 import { fetchDayAheadPrices, filterOvernightPrices } from './coMedPrices.js';
+import { sessionReadingsStats, invalidateActiveSessionCache } from './maevingMqtt.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
 const MAEVING_BATTERY_KWH = 2.88;
@@ -218,6 +219,47 @@ async function runScheduledSessions() {
         'Maeving scheduler: session %d activated',
         session.id,
       );
+    }
+  }
+
+  // --- Active session auto-cutoff ---
+  const activeSessions = db.prepare(`
+    SELECT s.*, d.ip, d.site_key
+    FROM maeving_sessions s
+    JOIN maeving_devices d ON d.id = s.device_id
+    WHERE s.status = 'active' AND s.soc_target_pct IS NOT NULL AND s.soc_target_pct < 100
+  `).all();
+
+  const { effective_capacity_wh } = db.prepare(
+    'SELECT effective_capacity_wh FROM maeving_config WHERE id = 1'
+  ).get() ?? { effective_capacity_wh: 2880 };
+
+  for (const session of activeSessions) {
+    const stats = sessionReadingsStats(session.device_id, session.started_at);
+    if (!stats || stats.wh_delivered == null) continue;
+
+    const estimatedSoc = session.soc_start_pct +
+      (stats.wh_delivered / effective_capacity_wh) * 100;
+
+    if (estimatedSoc >= session.soc_target_pct) {
+      schedulerLogger?.info(
+        { sessionId: session.id, estimatedSoc: estimatedSoc.toFixed(1), target: session.soc_target_pct },
+        'Maeving: target SOC reached — cutting power'
+      );
+      try {
+        await setPlugState(session.ip, false);
+      } catch (err) {
+        schedulerLogger?.warn({ err }, 'Maeving: failed to cut power for session %d', session.id);
+      }
+      // Close the session
+      const now = new Date().toISOString();
+      db.prepare(`
+        UPDATE maeving_sessions
+        SET status = 'complete', ended_at = ?,
+            wh_delivered = ?, peak_watts = ?, avg_watts = ?
+        WHERE id = ?
+      `).run(now, stats.wh_delivered, stats.peak_watts, stats.avg_watts, session.id);
+      invalidateActiveSessionCache(session.device_id);
     }
   }
 }

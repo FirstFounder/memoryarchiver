@@ -32,7 +32,7 @@ export function invalidateActiveSessionCache(deviceId) {
   delete activeSessionCache[deviceId];
 }
 
-function sessionReadingsStats(deviceId, startedAt) {
+export function sessionReadingsStats(deviceId, startedAt) {
   const rows = db.prepare(`
     SELECT apower, aenergy_total
     FROM maeving_readings
