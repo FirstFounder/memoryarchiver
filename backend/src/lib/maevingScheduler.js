@@ -1,6 +1,6 @@
 import db from '../db/client.js';
 import { setPlugState } from './maevingControl.js';
-import { fetchDayAheadPrices, filterOvernightPrices, fetchCurrentHourPrice } from './coMedPrices.js';
+import { fetchDayAheadPrices, fetchActualPrices, filterOvernightPrices, fetchCurrentHourPrice } from './coMedPrices.js';
 import { sessionReadingsStats, invalidateActiveSessionCache } from './maevingMqtt.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
@@ -104,25 +104,37 @@ function findCheapestWindow(prices, windowLength) {
 // Compute the optimal overnight start time and cost estimate.
 // Throws { code: 'PRICES_PENDING' } if prices are not yet available or it is before 19:00 CT.
 export async function computeOvernightStart(socStart, socTarget, departureTime) {
-  const ctHour = getCurrentCtHour();
-
   const kwhNeeded = Math.max(0, ((socTarget - socStart) / 100) * MAEVING_BATTERY_KWH);
   const requiredHours = Math.max(1, Math.ceil(kwhNeeded / MAEVING_CHARGE_RATE_KW));
   const targetHour = departureTime ? parseInt(departureTime.split(':')[0], 10) : 7;
 
-  if (ctHour < 19) {
-    const err = new Error('Day-ahead prices not yet published (before 19:00 CT)');
-    err.code = 'PRICES_PENDING';
-    throw err;
-  }
-
   let prices;
   try {
-    prices = await fetchDayAheadPrices();
-  } catch {
-    const err = new Error('Day-ahead prices unavailable');
-    err.code = 'PRICES_PENDING';
-    throw err;
+    const [todayPrices, tomorrowPrices] = await Promise.allSettled([
+      fetchActualPrices(),
+      fetchDayAheadPrices(),
+    ]);
+    const combined = [
+      ...(todayPrices.status === 'fulfilled' ? todayPrices.value : []),
+      ...(tomorrowPrices.status === 'fulfilled' ? tomorrowPrices.value : []),
+    ];
+    // Deduplicate by millisUTC
+    const seen = new Set();
+    prices = combined.filter(e => {
+      if (seen.has(e.millisUTC)) return false;
+      seen.add(e.millisUTC);
+      return true;
+    });
+    if (!prices.length) {
+      const err = new Error('Day-ahead prices unavailable');
+      err.code = 'PRICES_PENDING';
+      throw err;
+    }
+  } catch (err) {
+    if (err.code === 'PRICES_PENDING') throw err;
+    const e = new Error('Day-ahead prices unavailable');
+    e.code = 'PRICES_PENDING';
+    throw e;
   }
 
   const overnightPrices = filterOvernightPrices(prices, OVERNIGHT_WINDOW_START_HOUR, targetHour);
