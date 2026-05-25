@@ -1,6 +1,6 @@
 import db from '../db/client.js';
 import { setPlugState } from './maevingControl.js';
-import { fetchDayAheadPrices, filterOvernightPrices } from './coMedPrices.js';
+import { fetchDayAheadPrices, filterOvernightPrices, fetchCurrentHourPrice } from './coMedPrices.js';
 import { sessionReadingsStats, invalidateActiveSessionCache } from './maevingMqtt.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
@@ -253,12 +253,33 @@ async function runScheduledSessions() {
       }
       // Close the session
       const now = new Date().toISOString();
+      let cutoffCostDollars = null;
+      let cutoffPriceAvgCents = session.price_window_avg_cents ?? null;
+
+      if (!cutoffPriceAvgCents) {
+        try {
+          const priceRows = await fetchCurrentHourPrice();
+          if (priceRows.length) {
+            cutoffPriceAvgCents = priceRows[priceRows.length - 1].price;
+          }
+        } catch (err) {
+          schedulerLogger?.warn({ err }, 'Maeving: failed to fetch ComEd price at auto-cutoff');
+        }
+      }
+
+      if (cutoffPriceAvgCents && stats.wh_delivered) {
+        cutoffCostDollars = (cutoffPriceAvgCents * (stats.wh_delivered / 1000)) / 100;
+      }
+
       db.prepare(`
         UPDATE maeving_sessions
         SET status = 'complete', ended_at = ?,
-            wh_delivered = ?, peak_watts = ?, avg_watts = ?
+            wh_delivered = ?, peak_watts = ?, avg_watts = ?,
+            actual_cost_dollars    = COALESCE(?, actual_cost_dollars),
+            price_window_avg_cents = COALESCE(price_window_avg_cents, ?)
         WHERE id = ?
-      `).run(now, stats.wh_delivered, stats.peak_watts, stats.avg_watts, session.id);
+      `).run(now, stats.wh_delivered, stats.peak_watts, stats.avg_watts,
+             cutoffCostDollars, cutoffPriceAvgCents, session.id);
       invalidateActiveSessionCache(session.device_id);
     }
   }

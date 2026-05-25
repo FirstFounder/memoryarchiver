@@ -1,6 +1,7 @@
 import config from '../../config.js';
 import db from '../../db/client.js';
 import { getAllDeviceStates, getDeviceState, invalidateActiveSessionCache } from '../../lib/maevingMqtt.js';
+import { fetchCurrentHourPrice } from '../../lib/coMedPrices.js';
 import { setPlugState } from '../../lib/maevingControl.js';
 import {
   computeOvernightStart,
@@ -349,26 +350,41 @@ export default async function maevingRoutes(fastify) {
     const now = new Date().toISOString();
     const stats = readingsStats(session.device_id, session.started_at);
 
-    const actual_cost_dollars =
-      session.price_window_avg_cents != null && stats.wh_delivered != null
-        ? (session.price_window_avg_cents * (stats.wh_delivered / 1000)) / 100
-        : null;
+    let actualCostDollars = null;
+    let priceAvgCents = session.price_window_avg_cents ?? null;
+
+    if (!priceAvgCents && stats.wh_delivered) {
+      try {
+        const priceRows = await fetchCurrentHourPrice();
+        if (priceRows.length) {
+          priceAvgCents = priceRows[priceRows.length - 1].price;
+        }
+      } catch (err) {
+        fastify.log.warn({ err }, 'Maeving: failed to fetch ComEd price at session stop');
+      }
+    }
+
+    if (priceAvgCents && stats.wh_delivered) {
+      actualCostDollars = (priceAvgCents * (stats.wh_delivered / 1000)) / 100;
+    }
 
     db.prepare(`
       UPDATE maeving_sessions
-      SET ended_at            = ?,
-          status              = 'complete',
-          wh_delivered        = COALESCE(?, wh_delivered),
-          peak_watts          = COALESCE(?, peak_watts),
-          avg_watts           = COALESCE(?, avg_watts),
-          actual_cost_dollars = COALESCE(?, actual_cost_dollars)
+      SET ended_at               = ?,
+          status                 = 'complete',
+          wh_delivered           = COALESCE(?, wh_delivered),
+          peak_watts             = COALESCE(?, peak_watts),
+          avg_watts              = COALESCE(?, avg_watts),
+          actual_cost_dollars    = COALESCE(?, actual_cost_dollars),
+          price_window_avg_cents = COALESCE(price_window_avg_cents, ?)
       WHERE id = ?
     `).run(
       now,
       stats.wh_delivered,
       stats.peak_watts,
       stats.avg_watts,
-      actual_cost_dollars,
+      actualCostDollars,
+      priceAvgCents,
       session.id,
     );
 
