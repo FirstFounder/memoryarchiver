@@ -310,7 +310,14 @@ async function runScheduledSessions() {
         }
       }
 
+      let cutoffLfEquivalentCost = null;
+      let cutoffLfEquivalentFixed = null;
+
       if (session.cost_free) {
+        if (stats.wh_delivered != null && cutoffPriceAvgCents != null) {
+          cutoffLfEquivalentCost = ((cutoffPriceAvgCents + getComedBaseRateCents()) * (stats.wh_delivered / 1000)) / 100;
+          cutoffLfEquivalentFixed = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+        }
         cutoffCostDollars = 0;
         cutoffPriceAvgCents = null;
         cutoffFixedRateDollars = 0;
@@ -324,11 +331,22 @@ async function runScheduledSessions() {
             actual_cost_dollars     = COALESCE(?, actual_cost_dollars),
             price_window_avg_cents  = COALESCE(price_window_avg_cents, ?),
             fixed_rate_cost_dollars = COALESCE(?, fixed_rate_cost_dollars),
-            hourly_savings_dollars  = COALESCE(?, hourly_savings_dollars)
+            hourly_savings_dollars  = COALESCE(?, hourly_savings_dollars),
+            lf_equivalent_cost_dollars = ?,
+            lf_equivalent_fixed_dollars = ?
         WHERE id = ?
       `).run(now, stats.wh_delivered, stats.peak_watts, stats.avg_watts,
              cutoffCostDollars, cutoffPriceAvgCents,
-             cutoffFixedRateDollars, cutoffHourlySavingsDollars, session.id);
+             cutoffFixedRateDollars, cutoffHourlySavingsDollars,
+             cutoffLfEquivalentCost, cutoffLfEquivalentFixed, session.id);
+
+      const cutoffSavingsDelta = session.cost_free
+        ? (cutoffLfEquivalentCost ?? 0)
+        : Math.max(0, (cutoffFixedRateDollars ?? 0) - (cutoffCostDollars ?? 0));
+      db.prepare(`
+        UPDATE maeving_config SET running_savings_dollars = MAX(0, running_savings_dollars + ?) WHERE 1=1
+      `).run(cutoffSavingsDelta);
+
       invalidateActiveSessionCache(session.device_id);
     }
   }
@@ -379,6 +397,8 @@ async function runScheduledSessions() {
       let fixedRateCostDollars = null;
       let hourlySavingsDollars = null;
       let priceAvgCents = session.price_window_avg_cents ?? null;
+      let lfEquivalentCost = null;
+      let lfEquivalentFixed = null;
 
       if (!session.cost_free && stats?.wh_delivered) {
         if (!priceAvgCents) {
@@ -395,6 +415,18 @@ async function runScheduledSessions() {
           hourlySavingsDollars = fixedRateCostDollars - actualCostDollars;
         }
       } else if (session.cost_free) {
+        if (stats?.wh_delivered != null) {
+          if (!priceAvgCents) {
+            try {
+              const priceRows = await fetchCurrentHourPrice();
+              if (priceRows.length) priceAvgCents = priceRows[priceRows.length - 1].price;
+            } catch { /* ignore */ }
+          }
+          if (priceAvgCents) {
+            lfEquivalentCost = ((priceAvgCents + getComedBaseRateCents()) * (stats.wh_delivered / 1000)) / 100;
+            lfEquivalentFixed = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+          }
+        }
         actualCostDollars = 0;
         fixedRateCostDollars = 0;
         hourlySavingsDollars = 0;
@@ -405,13 +437,23 @@ async function runScheduledSessions() {
         SET status = 'charger_complete', ended_at = ?,
             wh_delivered = ?, peak_watts = ?, avg_watts = ?,
             actual_cost_dollars = ?, price_window_avg_cents = ?,
-            fixed_rate_cost_dollars = ?, hourly_savings_dollars = ?
+            fixed_rate_cost_dollars = ?, hourly_savings_dollars = ?,
+            lf_equivalent_cost_dollars = ?,
+            lf_equivalent_fixed_dollars = ?
         WHERE id = ?
       `).run(now,
         stats?.wh_delivered ?? null, stats?.peak_watts ?? null, stats?.avg_watts ?? null,
         actualCostDollars, priceAvgCents,
         fixedRateCostDollars, hourlySavingsDollars,
+        lfEquivalentCost, lfEquivalentFixed,
         session.id);
+
+      const completeSavingsDelta = session.cost_free
+        ? (lfEquivalentCost ?? 0)
+        : Math.max(0, (fixedRateCostDollars ?? 0) - (actualCostDollars ?? 0));
+      db.prepare(`
+        UPDATE maeving_config SET running_savings_dollars = MAX(0, running_savings_dollars + ?) WHERE 1=1
+      `).run(completeSavingsDelta);
 
       invalidateActiveSessionCache(session.device_id);
     }

@@ -148,6 +148,24 @@ export default function App() {
   const isReceipts = configLoaded && receiptsEnabled;
   const isMaeving  = configLoaded && maevingEnabled;
 
+  const [maevingSavings, setMaevingSavings] = useState(null);
+  useEffect(() => {
+    if (!isMaeving) return;
+    let active = true;
+    async function fetchSavings() {
+      try {
+        const res = await fetch('/api/maeving/config');
+        if (res.ok) {
+          const data = await res.json();
+          if (active) setMaevingSavings(data.running_savings_dollars ?? null);
+        }
+      } catch { /* silent */ }
+    }
+    fetchSavings();
+    const id = setInterval(fetchSavings, 60_000);
+    return () => { active = false; clearInterval(id); };
+  }, [isMaeving]);
+
   const { currentPrice, hourlyAvg, priceTrend, avgTrend, loading: comedLoading, refresh: refreshComed } = useComEdPricing();
   const lastPriceArrow = useRef('↑');
   const lastAvgArrow = useRef('↑');
@@ -247,6 +265,11 @@ export default function App() {
         <h1 className="text-slate-100 font-semibold tracking-tight">Memory Archiver</h1>
         <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
           H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
+          {isMaeving && maevingSavings != null && (
+            <span className="inline-flex items-center rounded bg-white px-1.5 py-0.5 text-base font-semibold" style={{ color: '#0047AB', fontSize: '1.2em' }}>
+              ${maevingSavings.toFixed(2)}
+            </span>
+          )}
           <span className="text-slate-600">·</span>
           <span className={`${priceTrendProps.className} text-base`} style={{ fontSize: '1.2em' }}>
             {priceTrendProps.arrow}

@@ -1033,7 +1033,7 @@ export function MaevingPanel() {
               return (
                 <div
                   key={session.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3 text-sm"
+                  className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm ${device?.cost_free ? 'bg-orange-950/30 border-orange-800/40' : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]'}`}
                 >
                   <span className="font-semibold text-slate-300">
                     {device?.site_key ?? '?'}
@@ -1055,10 +1055,25 @@ export function MaevingPanel() {
                     {formatChargeTime(session.started_at, session.ended_at)}
                   </span>
                   {device?.cost_free ? (
-                    <span className="text-slate-400">
-                      $0.00{' '}
-                      <span className="text-xs text-slate-500">(employer)</span>
-                    </span>
+                    session.lf_equivalent_cost_dollars != null ? (
+                      <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                        <span className="text-green-400">
+                          vs Hourly: ${session.lf_equivalent_cost_dollars.toFixed(2)}
+                        </span>
+                        {session.lf_equivalent_fixed_dollars != null && (
+                          <span className="text-amber-400">
+                            vs Fixed: ${session.lf_equivalent_fixed_dollars.toFixed(2)}
+                          </span>
+                        )}
+                        {session.rebel_cost_total != null && (
+                          <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                            vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
+                          </span>
+                        )}
+                      </span>
+                    ) : (
+                      <span className="text-slate-400">$0.00</span>
+                    )
                   ) : session.rebel_cost_total != null && session.actual_cost_dollars != null ? (
                     <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
                       <span className="text-green-400">
@@ -1135,6 +1150,7 @@ export function MaevingPanel() {
         const recentTripLegs = tripLegRows.slice(0, 5);
         if (recentTripLegs.length === 0) return null;
         const hasMultiLeg = recentTripLegs.some((r) => r.isMultiLeg);
+        const hasLFRow = recentTripLegs.some((r) => devices.find((d) => d.id === r.session.device_id)?.cost_free);
         return (
           <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
             <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
@@ -1150,14 +1166,15 @@ export function MaevingPanel() {
               {recentTripLegs.map((row, i) => {
                 const { session, legNum, totalLegs, isMultiLeg, trip, durationMin, isLastLeg } = row;
                 const device = devices.find((d) => d.id === session.device_id);
-                const cellColor = isMultiLeg ? 'text-yellow-400' : 'text-slate-300';
-                const dateCellColor = isMultiLeg ? 'text-yellow-400' : 'text-slate-500';
-                const timeCellColor = isMultiLeg ? 'text-yellow-400' : 'text-slate-500';
+                const isLF = !!device?.cost_free;
+                const cellColor = isLF ? 'text-orange-300' : (isMultiLeg ? 'text-yellow-400' : 'text-slate-300');
+                const dateCellColor = isLF ? 'text-orange-300' : (isMultiLeg ? 'text-yellow-400' : 'text-slate-500');
+                const timeCellColor = isLF ? 'text-orange-300' : (isMultiLeg ? 'text-yellow-400' : 'text-slate-500');
                 const tripName = trip?.description ?? `Trip #${row.tripId}`;
                 return (
                   <div
                     key={`${session.id}-${legNum}`}
-                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3 text-sm"
+                    className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm ${isLF ? 'bg-orange-950/30 border-orange-800/40' : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]'}`}
                   >
                     <span className={`font-semibold ${cellColor}`}>
                       {tripName}
@@ -1171,10 +1188,25 @@ export function MaevingPanel() {
                     <span className={timeCellColor}>{formatMinutes(durationMin)}</span>
                     {isLastLeg ? (
                       device?.cost_free ? (
-                        <span className="text-slate-400">
-                          $0.00{' '}
-                          <span className="text-xs text-slate-500">(employer)</span>
-                        </span>
+                        session.lf_equivalent_cost_dollars != null ? (
+                          <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                            <span className="text-green-400">
+                              vs Hourly: ${session.lf_equivalent_cost_dollars.toFixed(2)}
+                            </span>
+                            {session.lf_equivalent_fixed_dollars != null && (
+                              <span className="text-amber-400">
+                                vs Fixed: ${session.lf_equivalent_fixed_dollars.toFixed(2)}
+                              </span>
+                            )}
+                            {session.rebel_cost_total != null && (
+                              <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                                vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
+                              </span>
+                            )}
+                          </span>
+                        ) : (
+                          <span className="text-slate-400">$0.00</span>
+                        )
                       ) : session.rebel_cost_total != null && session.actual_cost_dollars != null ? (
                         <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
                           <span className="text-green-400">
@@ -1223,7 +1255,7 @@ export function MaevingPanel() {
             </div>
             {hasMultiLeg && (
               <p className="mt-2 text-xs text-slate-600">
-                Multi-leg trips shown in yellow — cost data reflects the final leg's charge session.
+                Multi-leg trips shown in yellow{hasLFRow ? '; Lake Forest sessions in orange' : ''} — cost data reflects the final leg's charge session.
               </p>
             )}
           </section>

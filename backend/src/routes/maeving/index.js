@@ -419,7 +419,14 @@ export default async function maevingRoutes(fastify) {
       }
     }
 
+    let lfEquivalentCost = null;
+    let lfEquivalentFixed = null;
+
     if (device.cost_free) {
+      if (stats.wh_delivered != null && priceAvgCents != null) {
+        lfEquivalentCost = ((priceAvgCents + getComedBaseRateCents()) * (stats.wh_delivered / 1000)) / 100;
+        lfEquivalentFixed = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+      }
       actualCostDollars = 0;
       priceAvgCents = null;
       fixedRateCostDollars = 0;
@@ -436,7 +443,9 @@ export default async function maevingRoutes(fastify) {
           actual_cost_dollars    = COALESCE(?, actual_cost_dollars),
           price_window_avg_cents = COALESCE(price_window_avg_cents, ?),
           fixed_rate_cost_dollars = COALESCE(?, fixed_rate_cost_dollars),
-          hourly_savings_dollars  = COALESCE(?, hourly_savings_dollars)
+          hourly_savings_dollars  = COALESCE(?, hourly_savings_dollars),
+          lf_equivalent_cost_dollars = ?,
+          lf_equivalent_fixed_dollars = ?
       WHERE id = ?
     `).run(
       now,
@@ -447,8 +456,17 @@ export default async function maevingRoutes(fastify) {
       priceAvgCents,
       fixedRateCostDollars,
       hourlySavingsDollars,
+      lfEquivalentCost,
+      lfEquivalentFixed,
       session.id,
     );
+
+    const savingsDelta = device.cost_free
+      ? (lfEquivalentCost ?? 0)
+      : Math.max(0, (fixedRateCostDollars ?? 0) - (actualCostDollars ?? 0));
+    db.prepare(`
+      UPDATE maeving_config SET running_savings_dollars = MAX(0, running_savings_dollars + ?) WHERE 1=1
+    `).run(savingsDelta);
 
     invalidateActiveSessionCache(session.device_id);
 
