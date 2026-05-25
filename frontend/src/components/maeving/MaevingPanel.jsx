@@ -58,6 +58,20 @@ function formatCtTime(iso) {
   });
 }
 
+function formatMinutes(min) {
+  if (min == null) return '—';
+  const h = Math.floor(min / 60);
+  const m = Math.round(min % 60);
+  if (h === 0) return `${m}m`;
+  return `${h}h ${m}m`;
+}
+
+function formatChargeTime(startedAt, endedAt) {
+  if (!startedAt || !endedAt) return '—';
+  const diffMin = (new Date(endedAt) - new Date(startedAt)) / 60000;
+  return formatMinutes(diffMin);
+}
+
 function msUntilCtTime(targetHour, targetMinute) {
   const now = Date.now();
   const ctDateStr = (d) =>
@@ -108,20 +122,6 @@ function computeLocalTripStats(legs, trips, config, socStart) {
   };
 }
 
-function getSessionAggregateDist(session, trips) {
-  const legIds = [1, 2, 3, 4].map((n) => session[`leg_${n}_trip_id`]).filter(Boolean);
-  if (legIds.length > 0) {
-    return legIds.reduce((sum, id) => {
-      const trip = trips.find((t) => t.id === id);
-      return sum + (trip?.distance_miles ?? 0);
-    }, 0);
-  }
-  if (session.trip_id) {
-    const trip = trips.find((t) => t.id === session.trip_id);
-    return trip?.distance_miles ?? 0;
-  }
-  return 0;
-}
 
 export function MaevingPanel() {
   const [devices, setDevices] = useState([]);
@@ -1010,11 +1010,11 @@ export function MaevingPanel() {
         </section>
       )}
 
-      {/* Recent sessions */}
+      {/* Recent Charge Sessions */}
       {recentSessions.length > 0 && (
         <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
           <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
-            Recent Sessions
+            Recent Charge Sessions
           </p>
           <div className="flex flex-col gap-2">
             <div className="flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-slate-500">
@@ -1022,17 +1022,11 @@ export function MaevingPanel() {
               <span>Date</span>
               <span>Energy</span>
               <span>SOC range</span>
-              <span>Distance</span>
-              <span>Efficiency</span>
-              <span>Cost / Rebel</span>
+              <span>Charge Time</span>
+              <span>Cost</span>
             </div>
             {recentSessions.map((session) => {
               const device = devices.find((d) => d.id === session.device_id);
-              const aggregateDist = getSessionAggregateDist(session, trips);
-              const whPerMile =
-                aggregateDist > 0 && session.wh_delivered != null
-                  ? session.wh_delivered / aggregateDist
-                  : null;
               const needsCalibration =
                 session.calibration_complete === 0 &&
                 (session.status === 'complete' || session.status === 'charger_complete');
@@ -1058,10 +1052,7 @@ export function MaevingPanel() {
                     {session.soc_start_pct ?? '—'}% → {session.soc_target_pct ?? '—'}%
                   </span>
                   <span className="text-slate-500">
-                    {aggregateDist > 0 ? `${aggregateDist.toFixed(1)} mi` : '—'}
-                  </span>
-                  <span className="text-slate-500">
-                    {whPerMile != null ? `${whPerMile.toFixed(1)} Wh/mi` : '—'}
+                    {formatChargeTime(session.started_at, session.ended_at)}
                   </span>
                   {device?.cost_free ? (
                     <span className="text-slate-400">
@@ -1118,6 +1109,126 @@ export function MaevingPanel() {
           <p className="mt-2 text-xs text-slate-600">* estimated cost</p>
         </section>
       )}
+
+      {/* Recent Trips */}
+      {(() => {
+        const tripLegRows = [];
+        for (const session of recentSessions) {
+          if (session.leg_1_trip_id == null) continue;
+          const legNums = [1, 2, 3, 4].filter((n) => session[`leg_${n}_trip_id`] != null);
+          const isMultiLeg = legNums.length > 1;
+          for (const n of legNums) {
+            const tripId = session[`leg_${n}_trip_id`];
+            const trip = trips.find((t) => t.id === tripId);
+            tripLegRows.push({
+              session,
+              legNum: n,
+              totalLegs: legNums.length,
+              isMultiLeg,
+              tripId,
+              trip,
+              durationMin: session[`leg_${n}_duration_min`],
+              isLastLeg: n === legNums[legNums.length - 1],
+            });
+          }
+        }
+        const recentTripLegs = tripLegRows.slice(0, 5);
+        if (recentTripLegs.length === 0) return null;
+        const hasMultiLeg = recentTripLegs.some((r) => r.isMultiLeg);
+        return (
+          <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
+            <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
+              Recent Trips
+            </p>
+            <div className="flex flex-col gap-2">
+              <div className="flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-slate-500">
+                <span>Trip</span>
+                <span>Date</span>
+                <span>Trip Time</span>
+                <span>Cost</span>
+              </div>
+              {recentTripLegs.map((row, i) => {
+                const { session, legNum, totalLegs, isMultiLeg, trip, durationMin, isLastLeg } = row;
+                const device = devices.find((d) => d.id === session.device_id);
+                const cellColor = isMultiLeg ? 'text-yellow-400' : 'text-slate-300';
+                const dateCellColor = isMultiLeg ? 'text-yellow-400' : 'text-slate-500';
+                const timeCellColor = isMultiLeg ? 'text-yellow-400' : 'text-slate-500';
+                const tripName = trip?.description ?? `Trip #${row.tripId}`;
+                return (
+                  <div
+                    key={`${session.id}-${legNum}`}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3 text-sm"
+                  >
+                    <span className={`font-semibold ${cellColor}`}>
+                      {tripName}
+                      {isMultiLeg && (
+                        <span className="ml-1.5 text-xs font-normal text-slate-500">
+                          (leg {legNum} of {totalLegs})
+                        </span>
+                      )}
+                    </span>
+                    <span className={dateCellColor}>{formatDate(session.started_at)}</span>
+                    <span className={timeCellColor}>{formatMinutes(durationMin)}</span>
+                    {isLastLeg ? (
+                      device?.cost_free ? (
+                        <span className="text-slate-400">
+                          $0.00{' '}
+                          <span className="text-xs text-slate-500">(employer)</span>
+                        </span>
+                      ) : session.rebel_cost_total != null && session.actual_cost_dollars != null ? (
+                        <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                          <span className="text-green-400">
+                            Hourly: ${session.actual_cost_dollars.toFixed(2)}
+                          </span>
+                          {session.fixed_rate_cost_dollars != null && (
+                            <span className="text-amber-400">
+                              Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
+                            </span>
+                          )}
+                          <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                            vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
+                          </span>
+                        </span>
+                      ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
+                        <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                          <span className="text-slate-400">
+                            Hourly: ${session.actual_cost_dollars.toFixed(2)}
+                          </span>
+                          <span className="text-slate-500">
+                            Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
+                          </span>
+                          <span
+                            className={
+                              (session.hourly_savings_dollars ?? 0) > 0
+                                ? 'text-emerald-400'
+                                : 'text-amber-400'
+                            }
+                          >
+                            Saved: ${(session.hourly_savings_dollars ?? 0).toFixed(2)}
+                          </span>
+                        </span>
+                      ) : session.actual_cost_dollars != null ? (
+                        <span className="text-slate-400">
+                          ${session.actual_cost_dollars.toFixed(2)}
+                        </span>
+                      ) : (
+                        <span className="text-slate-400">—</span>
+                      )
+                    ) : (
+                      <span className="text-slate-400">—</span>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {hasMultiLeg && (
+              <p className="mt-2 text-xs text-slate-600">
+                Multi-leg trips shown in yellow — cost data reflects the final leg's charge session.
+              </p>
+            )}
+          </section>
+        );
+      })()}
 
       {/* Calibration history */}
       {config && config.observation_count > 0 && (
