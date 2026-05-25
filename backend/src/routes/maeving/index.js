@@ -17,6 +17,11 @@ import {
   skipCalibration,
 } from '../../lib/maevingCalibration.js';
 
+function getComedBaseRateCents() {
+  const month = new Date().getMonth() + 1; // 1-12
+  return (month >= 6 && month <= 9) ? 4.27 : 2.90;
+}
+
 function readingsStats(deviceId, startedAt) {
   const rows = db.prepare(`
     SELECT apower, aenergy_total
@@ -365,7 +370,8 @@ export default async function maevingRoutes(fastify) {
     }
 
     if (priceAvgCents && stats.wh_delivered) {
-      actualCostDollars = (priceAvgCents * (stats.wh_delivered / 1000)) / 100;
+      const totalRateCents = priceAvgCents + getComedBaseRateCents();
+      actualCostDollars = (totalRateCents * (stats.wh_delivered / 1000)) / 100;
     }
 
     db.prepare(`

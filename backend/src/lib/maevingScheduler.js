@@ -10,6 +10,11 @@ const OVERNIGHT_WINDOW_START_HOUR = 21;
 let pollingInterval = null;
 let schedulerLogger = null;
 
+function getComedBaseRateCents() {
+  const month = new Date().getMonth() + 1; // 1-12
+  return (month >= 6 && month <= 9) ? 4.27 : 2.90;
+}
+
 function getCurrentCtHour() {
   return Number(
     new Intl.DateTimeFormat('en-US', {
@@ -268,7 +273,8 @@ async function runScheduledSessions() {
       }
 
       if (cutoffPriceAvgCents && stats.wh_delivered) {
-        cutoffCostDollars = (cutoffPriceAvgCents * (stats.wh_delivered / 1000)) / 100;
+        const totalRateCents = cutoffPriceAvgCents + getComedBaseRateCents();
+        cutoffCostDollars = (totalRateCents * (stats.wh_delivered / 1000)) / 100;
       }
 
       db.prepare(`
