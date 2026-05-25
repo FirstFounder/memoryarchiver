@@ -8,6 +8,7 @@ import {
   saveCredentials,
 } from '../../lib/teslaAuth.js';
 import { computePlan, pushPlan } from '../../lib/chargeScheduler.js';
+import { setChargeLimit as fleetSetChargeLimit } from '../../lib/teslaCommands.js';
 import { ensureVehicleOnline } from '../../lib/teslaFleet.js';
 import {
   getCarState,
@@ -15,12 +16,13 @@ import {
   getCarStateByVin,
   isMqttFresh,
 } from '../../lib/teslaMqtt.js';
+import { runEveningScheduler } from '../../lib/teslaScheduler.js';
 
 const VEHICLE_COLUMNS = `
   id, vin, nickname, display_name, model_label, cached_odometer,
   mode, departure_time, pack_capacity_kwh,
   normal_charge_amps, last_hpwc_amps, last_charge_limit_pct,
-  pack_swap_date, created_at, updated_at
+  teslamate_car_id, pack_swap_date, created_at, updated_at
 `;
 
 function getVehicle(vin) {
@@ -94,6 +96,34 @@ function serializeSession(row) {
   };
 }
 
+function getChicagoHour(now = new Date()) {
+  return Number(new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    hour: '2-digit',
+    hour12: false,
+  }).format(now));
+}
+
+function getMonthKey(millisUTC) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    year: 'numeric',
+    month: '2-digit',
+  }).formatToParts(new Date(millisUTC));
+  const byType = Object.fromEntries(
+    parts.filter(p => p.type !== 'literal').map(p => [p.type, p.value]),
+  );
+  return `${byType.year}-${byType.month}`;
+}
+
+function getMonthLabel(millisUTC) {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/Chicago',
+    year: 'numeric',
+    month: 'long',
+  }).format(new Date(millisUTC));
+}
+
 export default async function teslaRoutes(fastify) {
   if (!config.teslaEnabled) return;
 
@@ -123,8 +153,7 @@ export default async function teslaRoutes(fastify) {
       const payload = await fleetFetch(`/api/1/vehicles/${vin}`);
       const fleetVehicle = payload?.response ?? {};
       const mqttRaw = getCarStateByVin(vin);
-      const fullVehicle = db.prepare('SELECT teslamate_car_id FROM tesla_config WHERE vin = ?').get(vin);
-      const mqttCarId = fullVehicle?.teslamate_car_id;
+      const mqttCarId = vehicle.teslamate_car_id;
       return reply.send({
         vin,
         mode: vehicle.mode,
@@ -149,8 +178,7 @@ export default async function teslaRoutes(fastify) {
         mqttState: (() => {
           const s = getCarStateByVin(vin);
           if (!s) return null;
-          const v = db.prepare('SELECT teslamate_car_id FROM tesla_config WHERE vin = ?').get(vin);
-          return { ...s, fresh: v?.teslamate_car_id ? isMqttFresh(v.teslamate_car_id) : false };
+          return { ...s, fresh: vehicle.teslamate_car_id ? isMqttFresh(vehicle.teslamate_car_id) : false };
         })(),
       });
     }
@@ -205,60 +233,35 @@ export default async function teslaRoutes(fastify) {
     }
   });
 
-  fastify.post('/api/tesla/vehicle/:vin/manual-entry', async (req, reply) => {
+  fastify.patch('/api/tesla/vehicle/:vin/charge-limit', async (req, reply) => {
     const { vin } = req.params;
     const vehicle = getVehicle(vin);
     if (!vehicle) {
       return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
     }
 
-    const socPct = toInteger(req.body?.soc_pct);
-    const chargeLimitPct = toInteger(req.body?.charge_limit_pct);
-    const hpwcAmps = toInteger(req.body?.hpwc_amps);
-
-    if (!socPct || !chargeLimitPct || !hpwcAmps) {
-      return reply.code(400).send({ error: 'invalid_manual_entry', message: 'Manual entry requires SOC, charge limit, and HPWC amps' });
+    const percent = toInteger(req.body?.percent);
+    if (percent === null || percent < 50 || percent > 100) {
+      return reply.code(400).send({ error: 'invalid_percent', message: 'percent must be an integer between 50 and 100' });
     }
 
+    await fleetSetChargeLimit(vin, percent);
+
     db.prepare(`
-      UPDATE tesla_manual_entries
-      SET status = 'superseded'
-      WHERE vin = ? AND status = 'pending'
-    `).run(vin);
+      UPDATE tesla_config
+      SET last_charge_limit_pct = ?,
+          updated_at = ?
+      WHERE vin = ?
+    `).run(percent, Date.now(), vin);
 
-    const inserted = db.prepare(`
-      INSERT INTO tesla_manual_entries (vin, soc_pct, charge_limit_pct, hpwc_amps)
-      VALUES (?, ?, ?, ?)
-    `).run(vin, socPct, chargeLimitPct, hpwcAmps);
+    const chicagoHour = getChicagoHour();
+    let recomputed = false;
+    if (chicagoHour >= 19) {
+      await runEveningScheduler();
+      recomputed = true;
+    }
 
-    updateVehicleTelemetry(vin, {
-      hpwcAmps,
-      chargeLimitPct,
-    });
-
-    return reply.send({
-      ok: true,
-      entry: {
-        id: Number(inserted.lastInsertRowid),
-        vin,
-        soc_pct: socPct,
-        charge_limit_pct: chargeLimitPct,
-        hpwc_amps: hpwcAmps,
-      },
-    });
-  });
-
-  fastify.get('/api/tesla/vehicle/:vin/manual-entry', async (req, reply) => {
-    const { vin } = req.params;
-    const entry = db.prepare(`
-      SELECT id, vin, soc_pct, charge_limit_pct, hpwc_amps, status, created_at
-      FROM tesla_manual_entries
-      WHERE vin = ? AND status = 'pending'
-      ORDER BY created_at DESC, id DESC
-      LIMIT 1
-    `).get(vin);
-
-    return reply.send(entry ?? null);
+    return reply.send({ ok: true, recomputed, percent });
   });
 
   fastify.patch('/api/tesla/vehicle/:vin/config', async (req, reply) => {
@@ -433,24 +436,6 @@ export default async function teslaRoutes(fastify) {
     return reply.send(serializePlan(pushed));
   });
 
-  fastify.post('/api/tesla/sessions/:vin/morning-poll', async (req, reply) => {
-    const { vin } = req.params;
-    const vehicle = getVehicle(vin);
-    if (!vehicle) {
-      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
-    }
-    if (vehicle.mode !== 'active') {
-      return reply.code(400).send({ error: 'not_active', message: 'Vehicle is not in active mode' });
-    }
-
-    const { runMorningPollForVin } = await import('../../lib/morningPoller.js');
-    const result = await runMorningPollForVin(vin);
-    return reply.send({
-      ...result,
-      session: serializeSession(result.session),
-    });
-  });
-
   fastify.post('/api/tesla/plan/:vin/skip', async (req, reply) => {
     const { vin } = req.params;
     const vehicle = getVehicle(vin);
@@ -501,6 +486,43 @@ export default async function teslaRoutes(fastify) {
       return reply.code(404).send({ error: 'not_found' });
     }
     return reply.send({ ...state, fresh: isMqttFresh(carId) });
+  });
+
+  fastify.get('/api/tesla/fleet-api-calls', async (req, reply) => {
+    const months = Math.min(Math.max(Number(req.query.months ?? 3) || 3, 1), 24);
+    const now = Date.now();
+    const cutoff = new Date(now);
+    cutoff.setMonth(cutoff.getMonth() - months);
+
+    const rows = db.prepare(`
+      SELECT called_at FROM fleet_api_calls
+      WHERE called_at >= ?
+      ORDER BY called_at ASC
+    `).all(cutoff.getTime());
+
+    const monthData = {};
+    for (const row of rows) {
+      const key = getMonthKey(row.called_at);
+      if (!monthData[key]) {
+        monthData[key] = { label: getMonthLabel(row.called_at), count: 0 };
+      }
+      monthData[key].count++;
+    }
+
+    const currentKey = getMonthKey(now);
+    const currentLabel = getMonthLabel(now);
+
+    const history = Object.entries(monthData)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([, data]) => ({ label: data.label, count: data.count }));
+
+    return reply.send({
+      currentMonth: {
+        label: currentLabel,
+        count: monthData[currentKey]?.count ?? 0,
+      },
+      history,
+    });
   });
 
   fastify.patch('/api/tesla/settings', async (req, reply) => {

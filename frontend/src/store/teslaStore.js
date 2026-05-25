@@ -3,12 +3,12 @@ import { create } from 'zustand';
 export const useTeslaStore = create((set) => ({
   vehicles: [],
   vehicleStatus: {},
-  manualEntries: {},
   plans: {},
   sessions: {},
   sessionTotals: {},
   settings: null,
   selectedGarageVin: null,
+  fleetApiCallStats: null,
 
   setVehicles(arr) {
     set({ vehicles: arr });
@@ -19,15 +19,6 @@ export const useTeslaStore = create((set) => ({
       vehicleStatus: {
         ...state.vehicleStatus,
         [vin]: status,
-      },
-    }));
-  },
-
-  setManualEntry(vin, entry) {
-    set(state => ({
-      manualEntries: {
-        ...state.manualEntries,
-        [vin]: entry,
       },
     }));
   },
@@ -87,6 +78,10 @@ export const useTeslaStore = create((set) => ({
 
   setSelectedGarageVin(vin) {
     set({ selectedGarageVin: vin });
+  },
+
+  setFleetApiCallStats(stats) {
+    set({ fleetApiCallStats: stats });
   },
 
   mqttState: {},

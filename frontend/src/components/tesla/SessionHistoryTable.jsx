@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { getSessions, triggerMorningPoll } from '../../api/tesla.js';
+import { getSessions } from '../../api/tesla.js';
 import { useTeslaStore } from '../../store/teslaStore.js';
 
 const DATE_FORMATTER = new Intl.DateTimeFormat('en-US', {
@@ -41,7 +41,6 @@ export function SessionHistoryTable({ vin }) {
   const appendSessions = useTeslaStore(s => s.appendSessions);
   const [expanded, setExpanded] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [polling, setPolling] = useState(false);
   const [error, setError] = useState('');
 
   async function loadPage(offset = 0, append = false) {
@@ -67,26 +66,12 @@ export function SessionHistoryTable({ vin }) {
     loadPage(0, false);
   }, [expanded, totals]);
 
-  async function handlePollNow() {
-    if (polling) return;
-    setPolling(true);
-    setError('');
-    try {
-      await triggerMorningPoll(vin);
-      await loadPage(0, false);
-    } catch (nextError) {
-      setError(nextError.message);
-    } finally {
-      setPolling(false);
-    }
-  }
-
   const total = totals?.total ?? 0;
   const canLoadMore = total > sessions.length;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-slate-700/70 bg-slate-950/50">
-      <div className="flex items-center justify-between gap-3 px-4 py-3">
+      <div className="flex items-center gap-3 px-4 py-3">
         <button
           type="button"
           onClick={() => setExpanded(value => !value)}
@@ -95,17 +80,6 @@ export function SessionHistoryTable({ vin }) {
           <span>Session History</span>
           <span className={`text-slate-400 transition-transform ${expanded ? 'rotate-90' : ''}`}>›</span>
         </button>
-
-        {expanded && (
-          <button
-            type="button"
-            onClick={handlePollNow}
-            disabled={polling}
-            className="rounded-lg border border-slate-700 px-3 py-1.5 text-xs font-semibold text-slate-200 transition-colors hover:border-indigo-500 hover:text-indigo-200 disabled:opacity-50"
-          >
-            {polling ? 'Polling…' : 'Poll Now'}
-          </button>
-        )}
       </div>
 
       {expanded && (

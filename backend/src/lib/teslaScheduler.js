@@ -2,21 +2,9 @@ import cron from 'node-cron';
 import db from '../db/client.js';
 import config from '../config.js';
 import { computePlan, pushPlan } from './chargeScheduler.js';
-import { runMorningPoll } from './morningPoller.js';
-import { checkForOverride } from './overrideDetector.js';
 
 let scheduledTask = null;
-let morningTask = null;
-let adjustTask = null;
 let running = false;
-
-function getSettings() {
-  return db.prepare(`
-    SELECT *
-    FROM tesla_settings
-    WHERE id = 1
-  `).get();
-}
 
 function getActiveVehicles() {
   return db.prepare(`
@@ -27,31 +15,22 @@ function getActiveVehicles() {
   `).all();
 }
 
-async function runScheduler() {
+export async function runEveningScheduler() {
   if (running) return;
   running = true;
-
   try {
     const vehicles = getActiveVehicles();
-
     for (const vehicle of vehicles) {
       try {
-        const override = await checkForOverride(vehicle.vin);
-        if (override.overridden) {
-          console.info(`[teslaScheduler] ${vehicle.display_name ?? vehicle.nickname ?? vehicle.vin}: user override detected, skipping`);
-          continue;
-        }
-
         const plan = await computePlan(vehicle.vin);
         if (plan?.status === 'skipped') {
-          console.info(`[teslaScheduler] ${vehicle.display_name ?? vehicle.nickname ?? vehicle.vin}: skipped (${plan.reason ?? 'no_reason'})`);
+          console.info(`[teslaScheduler] ${vehicle.display_name ?? vehicle.vin}: skipped (${plan.reason ?? 'no_reason'})`);
           continue;
         }
-
         const pushed = await pushPlan(plan, vehicle.vin);
-        console.info(`[teslaScheduler] ${vehicle.display_name ?? vehicle.nickname ?? vehicle.vin}: ${pushed?.alert ?? 'scheduled'}`);
+        console.info(`[teslaScheduler] ${vehicle.display_name ?? vehicle.vin}: ${pushed?.alert ?? 'scheduled'}`);
       } catch (error) {
-        console.error(`[teslaScheduler] ${vehicle.display_name ?? vehicle.nickname ?? vehicle.vin}:`, error);
+        console.error(`[teslaScheduler] ${vehicle.display_name ?? vehicle.vin}:`, error);
       }
     }
   } finally {
@@ -60,55 +39,23 @@ async function runScheduler() {
 }
 
 export async function startTeslaScheduler() {
-  if (!config.teslaEnabled || scheduledTask || morningTask || adjustTask) return;
+  if (!config.teslaEnabled || scheduledTask) return;
 
-  const settings = getSettings();
-  const expression = settings?.eval_cron ?? '45 21 * * *';
-  const morningExpression = settings?.morning_cron ?? '30 9 * * *';
+  const settings = db.prepare('SELECT eval_cron FROM tesla_settings WHERE id = 1').get();
+  const expression = settings?.eval_cron ?? '0 19 * * *';
 
   scheduledTask = cron.schedule(expression, () => {
-    runScheduler().catch((error) => {
-      console.error('[teslaScheduler] unhandled scheduler error', error);
+    runEveningScheduler().catch(err => {
+      console.error('[teslaScheduler] unhandled error', err);
     });
-  }, {
-    timezone: 'America/Chicago',
-  });
+  }, { timezone: 'America/Chicago' });
 
   console.info(`[teslaScheduler] scheduled with cron "${expression}"`);
-
-  morningTask = cron.schedule(morningExpression, () => {
-    runMorningPoll().catch((error) => {
-      console.error('[teslaScheduler] unhandled morning poll error', error);
-    });
-  }, {
-    timezone: 'America/Chicago',
-  });
-
-  console.info(`[teslaScheduler] morning poll scheduled with cron "${morningExpression}"`);
-
-  const { runIntraSessionAdjuster } = await import('./intraSessionAdjuster.js');
-  const adjustExpression = settings?.intra_adjust_cron ?? '0 22-23,0-7 * * *';
-  adjustTask = cron.schedule(adjustExpression, () => {
-    runIntraSessionAdjuster().catch((error) => {
-      console.error('[teslaScheduler] unhandled intra-session adjuster error', error);
-    });
-  }, {
-    timezone: 'America/Chicago',
-  });
-  console.info(`[teslaScheduler] intra-session adjuster scheduled with cron "${adjustExpression}"`);
 }
 
 export function stopTeslaScheduler() {
   if (scheduledTask) {
     scheduledTask.stop();
     scheduledTask = null;
-  }
-  if (morningTask) {
-    morningTask.stop();
-    morningTask = null;
-  }
-  if (adjustTask) {
-    adjustTask.stop();
-    adjustTask = null;
   }
 }

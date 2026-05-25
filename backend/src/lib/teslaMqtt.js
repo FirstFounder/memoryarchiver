@@ -6,6 +6,7 @@ const NUMERIC_FIELDS = new Set([
   'battery_level', 'usable_battery_level', 'charge_limit_soc',
   'charger_power', 'charger_voltage', 'charge_current_request',
   'charge_current_request_max', 'time_to_full_charge',
+  'scheduled_charging_start_time',
   'odometer', 'speed', 'heading', 'elevation', 'outside_temp',
   'inside_temp', 'rated_battery_range_km', 'ideal_battery_range_km',
   'latitude', 'longitude',

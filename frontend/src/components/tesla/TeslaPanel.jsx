@@ -10,6 +10,7 @@ import {
   YAxis,
 } from 'recharts';
 import {
+  getFleetApiCalls,
   getLatestPlan,
   getMqttState,
   getVehicleStatus,
@@ -422,6 +423,57 @@ function VehicleCard({ vehicle }) {
   );
 }
 
+function FleetApiCallCounter() {
+  const fleetApiCallStats = useTeslaStore(s => s.fleetApiCallStats);
+  const setFleetApiCallStats = useTeslaStore(s => s.setFleetApiCallStats);
+  const [expanded, setExpanded] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      try {
+        const data = await getFleetApiCalls(3);
+        if (!cancelled) setFleetApiCallStats(data);
+      } catch {
+        // silently ignore
+      }
+    }
+    load();
+    const interval = setInterval(load, 5 * 60_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [setFleetApiCallStats]);
+
+  if (!fleetApiCallStats) return null;
+
+  return (
+    <div className="text-xs text-slate-500">
+      <button
+        type="button"
+        onClick={() => setExpanded(e => !e)}
+        className="flex items-center gap-1 hover:text-slate-400"
+      >
+        <span>Fleet API calls this month: {fleetApiCallStats.currentMonth.count}</span>
+        <span>{expanded ? '▲' : '▼'}</span>
+      </button>
+      {expanded && fleetApiCallStats.history.length > 0 && (
+        <table className="mt-2 text-xs text-slate-500">
+          <tbody>
+            {fleetApiCallStats.history.map(row => (
+              <tr key={row.label}>
+                <td className="pr-4 text-slate-600">{row.label}</td>
+                <td className="text-right">{row.count}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+    </div>
+  );
+}
+
 export function TeslaPanel() {
   const vehicles = useTeslaStore(s => s.vehicles);
   const setVehicles = useTeslaStore(s => s.setVehicles);
@@ -484,6 +536,7 @@ export function TeslaPanel() {
     <div className="flex flex-col">
       <div className="mb-4 flex items-center justify-between border-t border-slate-800 pt-4">
         <h2 className="text-sm font-semibold text-slate-200">Tesla Scheduler</h2>
+        <FleetApiCallCounter />
       </div>
 
       {vehicles.length === 0 && (

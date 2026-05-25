@@ -165,24 +165,6 @@ function getVehicleConfig(vin) {
   `).get(vin);
 }
 
-function getPendingManualEntry(vin) {
-  return db.prepare(`
-    SELECT *
-    FROM tesla_manual_entries
-    WHERE vin = ? AND status = 'pending'
-    ORDER BY created_at DESC, id DESC
-    LIMIT 1
-  `).get(vin);
-}
-
-function consumeManualEntry(entryId) {
-  db.prepare(`
-    UPDATE tesla_manual_entries
-    SET status = 'consumed'
-    WHERE id = ?
-  `).run(entryId);
-}
-
 function updateVehicleCache(vin, patch) {
   const keys = Object.keys(patch);
   if (!keys.length) return;
@@ -346,44 +328,42 @@ export async function computePlan(vin) {
   let chargeLimitPct;
   let hpwcAmps;
 
-  const manualEntry = getPendingManualEntry(vin);
-  if (manualEntry) {
-    socPct = manualEntry.soc_pct;
-    chargeLimitPct = manualEntry.charge_limit_pct;
-    hpwcAmps = manualEntry.hpwc_amps;
-    consumeManualEntry(manualEntry.id);
+  // Try MQTT first — free, no wake call needed
+  const mqttState = getCarStateByVin(vin);
+  const mqttCarId = vehicle.teslamate_car_id;
+  if (mqttState && isMqttFresh(mqttCarId)) {
+    if (mqttState.plugged_in === false) {
+      const skipped = buildSkippedPlan(vin);
+      return { ...skipped, reason: 'not_plugged_in' };
+    }
+    socPct         = Number(mqttState.battery_level ?? mqttState.usable_battery_level ?? 0);
+    chargeLimitPct = Number(mqttState.charge_limit_soc ?? vehicle.last_charge_limit_pct ?? 0);
+    hpwcAmps       = mqttState.plugged_in === true
+      ? Number(mqttState.charge_current_request_max ?? vehicle.last_hpwc_amps ?? 0)
+      : Number(vehicle.last_hpwc_amps ?? 0);
+    updateVehicleCache(vin, {
+      last_hpwc_amps:        hpwcAmps       || vehicle.last_hpwc_amps,
+      last_charge_limit_pct: chargeLimitPct || vehicle.last_charge_limit_pct,
+    });
   } else {
-    // Try MQTT first — free, no wake call needed
-    const mqttState = getCarStateByVin(vin);
-    const mqttCarId = vehicle.teslamate_car_id;
-    if (mqttState && isMqttFresh(mqttCarId) && mqttState.state !== 'asleep') {
-      socPct         = Number(mqttState.battery_level ?? mqttState.usable_battery_level ?? 0);
-      chargeLimitPct = Number(mqttState.charge_limit_soc ?? vehicle.last_charge_limit_pct ?? 0);
-      hpwcAmps       = Number(mqttState.charge_current_request_max ?? vehicle.last_hpwc_amps ?? 0);
-      updateVehicleCache(vin, {
-        last_hpwc_amps:        hpwcAmps       || vehicle.last_hpwc_amps,
-        last_charge_limit_pct: chargeLimitPct || vehicle.last_charge_limit_pct,
-      });
-    } else {
-      // Fall through to Fleet API poll (existing behavior)
-      try {
-        const payload = await fetchVehicleData(vin, { wake: true });
-        const chargeState = payload?.response?.charge_state ?? {};
-        const vehicleState = payload?.response?.vehicle_state ?? {};
-        socPct = Number(chargeState.battery_level ?? 0);
-        chargeLimitPct = Number(chargeState.charge_limit_soc ?? vehicle.last_charge_limit_pct ?? 0);
-        hpwcAmps = Number(chargeState.charger_pilot_current ?? chargeState.charge_current_request_max ?? vehicle.last_hpwc_amps ?? 0);
+    // Fall through to Fleet API poll
+    try {
+      const payload = await fetchVehicleData(vin, { wake: true });
+      const chargeState = payload?.response?.charge_state ?? {};
+      const vehicleState = payload?.response?.vehicle_state ?? {};
+      socPct = Number(chargeState.battery_level ?? 0);
+      chargeLimitPct = Number(chargeState.charge_limit_soc ?? vehicle.last_charge_limit_pct ?? 0);
+      hpwcAmps = Number(chargeState.charger_pilot_current ?? chargeState.charge_current_request_max ?? vehicle.last_hpwc_amps ?? 0);
 
-        updateVehicleCache(vin, {
-          last_hpwc_amps: hpwcAmps || vehicle.last_hpwc_amps,
-          last_charge_limit_pct: chargeLimitPct || vehicle.last_charge_limit_pct,
-          cached_odometer: Number.isFinite(Number(vehicleState.odometer)) ? Math.round(Number(vehicleState.odometer)) : vehicle.cached_odometer,
-        });
-      } catch (error) {
-        const alert = isVehicleSleepError(error) ? 'vehicle_asleep' : null;
-        const skipped = buildSkippedPlan(vin, { alert });
-        return { ...skipped, reason: 'fleet_unavailable' };
-      }
+      updateVehicleCache(vin, {
+        last_hpwc_amps: hpwcAmps || vehicle.last_hpwc_amps,
+        last_charge_limit_pct: chargeLimitPct || vehicle.last_charge_limit_pct,
+        cached_odometer: Number.isFinite(Number(vehicleState.odometer)) ? Math.round(Number(vehicleState.odometer)) : vehicle.cached_odometer,
+      });
+    } catch (error) {
+      const alert = isVehicleSleepError(error) ? 'vehicle_asleep' : null;
+      const skipped = buildSkippedPlan(vin, { alert });
+      return { ...skipped, reason: 'fleet_unavailable' };
     }
   }
 

@@ -12,20 +12,12 @@ export async function pollVehicle(vin) {
   return apiFetch(`/api/tesla/vehicle/${encodeURIComponent(vin)}/poll`);
 }
 
-export async function submitManualEntry(vin, { socPct, chargeLimitPct, hpwcAmps }) {
-  return apiFetch(`/api/tesla/vehicle/${encodeURIComponent(vin)}/manual-entry`, {
-    method: 'POST',
+export async function setChargeLimit(vin, percent) {
+  return apiFetch(`/api/tesla/vehicle/${encodeURIComponent(vin)}/charge-limit`, {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({
-      soc_pct: socPct,
-      charge_limit_pct: chargeLimitPct,
-      hpwc_amps: hpwcAmps,
-    }),
+    body: JSON.stringify({ percent }),
   });
-}
-
-export async function getManualEntry(vin) {
-  return apiFetch(`/api/tesla/vehicle/${encodeURIComponent(vin)}/manual-entry`);
 }
 
 export async function patchVehicleConfig(vin, patch) {
@@ -84,12 +76,6 @@ export async function getSessions(vin, { limit = 10, offset = 0 } = {}) {
   return apiFetch(`/api/tesla/sessions/${encodeURIComponent(vin)}?limit=${limit}&offset=${offset}`);
 }
 
-export async function triggerMorningPoll(vin) {
-  return apiFetch(`/api/tesla/sessions/${encodeURIComponent(vin)}/morning-poll`, {
-    method: 'POST',
-  });
-}
-
 export async function getCapacity(vin) {
   return apiFetch(`/api/tesla/capacity/${encodeURIComponent(vin)}`);
 }
@@ -97,4 +83,8 @@ export async function getCapacity(vin) {
 export async function getMqttState() {
   const res = await fetch('/api/tesla/mqtt/state');
   return res.json();
+}
+
+export async function getFleetApiCalls(months = 3) {
+  return apiFetch(`/api/tesla/fleet-api-calls?months=${months}`);
 }

@@ -27,6 +27,18 @@ function parseJsonOrNull(text) {
   }
 }
 
+function recordFleetCall(path, method, status) {
+  try {
+    const vinMatch = path.match(/\/api\/1\/vehicles\/([^/]+)/);
+    db.prepare(`
+      INSERT INTO fleet_api_calls (vin, endpoint, method, status, called_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(vinMatch?.[1] ?? null, path, method, status, Date.now());
+  } catch {
+    // best-effort — never propagate
+  }
+}
+
 export function hasCredentials() {
   const row = getAuthRow();
   return Boolean(row?.refresh_token);
@@ -120,17 +132,27 @@ export async function getValidAccessToken() {
 }
 
 export async function fleetFetch(path, options = {}) {
+  const method = options.method ?? 'GET';
   const token = await getValidAccessToken();
   const headers = new Headers(options.headers ?? {});
   headers.set('Authorization', `Bearer ${token}`);
 
-  const response = await fetch(`${config.teslaFleetApiBase}${path}`, {
-    ...options,
-    headers,
-  });
+  let response;
+  try {
+    response = await fetch(`${config.teslaFleetApiBase}${path}`, {
+      ...options,
+      headers,
+    });
+  } catch (fetchErr) {
+    recordFleetCall(path, method, null);
+    throw fetchErr;
+  }
 
+  const status = response.status;
   const rawText = await response.text();
   const payload = parseJsonOrNull(rawText);
+
+  recordFleetCall(path, method, status);
 
   if (!response.ok) {
     const errorBody = payload ? JSON.stringify(payload) : rawText;
