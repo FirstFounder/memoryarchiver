@@ -42,6 +42,12 @@ function formatDate(iso) {
   );
 }
 
+function formatEnergy(wh) {
+  if (wh == null) return '—';
+  if (wh >= 1000) return (wh / 1000).toFixed(2) + ' kWh';
+  return Math.round(wh) + ' Wh';
+}
+
 function formatCtTime(iso) {
   if (!iso) return '—';
   return new Date(iso).toLocaleTimeString('en-US', {
@@ -618,9 +624,7 @@ export function MaevingPanel() {
                   <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
                     <p className="text-xs text-slate-500">Wh delivered</p>
                     <p className="mt-1 text-sm font-semibold text-slate-200">
-                      {sessionDetails?.readings_summary?.wh_delivered != null
-                        ? `${Math.round(sessionDetails.readings_summary.wh_delivered)} Wh`
-                        : '—'}
+                      {formatEnergy(sessionDetails?.readings_summary?.wh_delivered)}
                     </p>
                   </div>
                   {estCost != null && (
@@ -651,10 +655,7 @@ export function MaevingPanel() {
                         ? Math.round(taperData.taper_duration_min)
                         : '—'}{' '}
                       min ·{' '}
-                      {taperData.taper_wh_delivered != null
-                        ? Math.round(taperData.taper_wh_delivered)
-                        : '—'}{' '}
-                      Wh
+                      {formatEnergy(taperData.taper_wh_delivered)}
                     </p>
                   ) : (
                     <p className="text-sm text-slate-500">
@@ -801,7 +802,7 @@ export function MaevingPanel() {
                     </span>
                     <span className="text-slate-400">
                       <span className="font-semibold text-slate-200">
-                        {Math.round(tripStats.energy_consumed_wh)} Wh
+                        {formatEnergy(tripStats.energy_consumed_wh)}
                       </span>{' '}
                       consumed
                     </span>
@@ -891,6 +892,15 @@ export function MaevingPanel() {
             Recent Sessions
           </p>
           <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-slate-500">
+              <span>Site</span>
+              <span>Date</span>
+              <span>Energy</span>
+              <span>SOC range</span>
+              <span>Distance</span>
+              <span>Efficiency</span>
+              <span>Cost</span>
+            </div>
             {recentSessions.map((session) => {
               const device = devices.find((d) => d.id === session.device_id);
               const aggregateDist = getSessionAggregateDist(session, trips);
@@ -923,9 +933,7 @@ export function MaevingPanel() {
                   </span>
                   <span className="text-slate-500">{formatDate(session.started_at)}</span>
                   <span className="text-slate-400">
-                    {session.wh_delivered != null
-                      ? `${Math.round(session.wh_delivered)} Wh`
-                      : '—'}
+                    {formatEnergy(session.wh_delivered)}
                   </span>
                   <span className="text-slate-500">
                     {session.soc_start_pct ?? '—'}% → {session.soc_target_pct ?? '—'}%
