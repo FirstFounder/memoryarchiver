@@ -165,6 +165,15 @@ function getVehicleConfig(vin) {
   `).get(vin);
 }
 
+function getFleetVehicleId(vin) {
+  const row = db.prepare(`
+    SELECT tesla_vehicle_id
+    FROM tesla_config
+    WHERE vin = ?
+  `).get(vin);
+  return row?.tesla_vehicle_id ?? null;
+}
+
 function updateVehicleCache(vin, patch) {
   const keys = Object.keys(patch);
   if (!keys.length) return;
@@ -452,18 +461,23 @@ export async function pushPlan(plan, vin) {
     return plan;
   }
 
+  const fleetVehicleId = getFleetVehicleId(vin);
+  if (fleetVehicleId === null) {
+    return { status: 'skipped', reason: 'no_fleet_vehicle_id' };
+  }
+
   const start = parseHour(plan.window_start);
   const end = parseHour(plan.window_end);
 
   try {
-    await addChargeSchedule(vin, {
+    await addChargeSchedule(fleetVehicleId, {
       startHour: start.hour,
       startMinute: start.minute,
       endHour: end.hour,
       endMinute: end.minute,
     });
-    await setChargingAmps(vin, plan.charge_amps);
-    await setChargeLimit(vin, plan.charge_limit_at_set_time);
+    await setChargingAmps(fleetVehicleId, plan.charge_amps);
+    await setChargeLimit(fleetVehicleId, plan.charge_limit_at_set_time);
 
     return updatePlan(plan.id, {
       scheduled_start_pushed: plan.window_start,
