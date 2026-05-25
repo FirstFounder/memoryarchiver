@@ -163,7 +163,9 @@ export function MaevingPanel() {
         getConfig(),
       ]);
       setDevices(devs);
-      setSelectedId((prev) => prev ?? devs[0]?.id ?? null);
+      const activeDeviceId =
+        all.find((s) => s.status === 'active' || s.status === 'scheduled')?.device_id ?? null;
+      setSelectedId((prev) => prev ?? activeDeviceId ?? devs[0]?.id ?? null);
       setTrips(tripList);
       setConfig(cfg);
       setPendingCalibration(cfg.pendingSession ?? null);
@@ -434,11 +436,6 @@ export function MaevingPanel() {
     }
   }
 
-  const eta =
-    activeSession?.status === 'active' && activeSession?.soc_target_pct !== 100
-      ? formatEta(activeSession, sessionDetails?.readings_summary, liveApower)
-      : null;
-
   const isScheduled = activeSession?.status === 'scheduled';
   const isCharging = activeSession?.status === 'active';
   const estCost = activeSession?.estimated_cost_dollars;
@@ -553,11 +550,12 @@ export function MaevingPanel() {
                   setSelectedId(device.id);
                   setError('');
                 }}
+                disabled={isCharging && device.id !== selectedId}
                 className={`min-h-16 rounded-2xl border px-5 py-4 text-left transition-colors ${
                   isSelected
                     ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/20 text-slate-50'
                     : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] text-slate-300 hover:border-slate-500'
-                }`}
+                }${isCharging && device.id !== selectedId ? ' cursor-not-allowed opacity-40' : ''}`}
               >
                 <span className="flex items-center gap-2">
                   <span
@@ -684,18 +682,77 @@ export function MaevingPanel() {
                 </div>
               )}
 
-              {/* ETA or auto-shutoff monitoring */}
-              {isCharging && activeSession.soc_target_pct === 100 ? (
+              {/* Auto-shutoff monitoring for 100% target sessions */}
+              {isCharging && activeSession.soc_target_pct === 100 && (
                 <div className="rounded-2xl border border-sky-700/50 bg-sky-900/20 px-4 py-3 text-sm text-sky-300">
                   Monitoring for charger auto-shutoff
                 </div>
-              ) : (
-                eta && (
-                  <div className="rounded-2xl border border-emerald-700/50 bg-emerald-900/20 px-4 py-3 text-sm text-emerald-300">
-                    {eta}
-                  </div>
-                )
               )}
+
+              {/* SOC progress bar for sub-100% target active sessions */}
+              {isCharging && activeSession.soc_target_pct < 100 && (() => {
+                const effectiveCapacity = config?.effective_capacity_wh ?? TOTAL_WH;
+                const whDelivered = sessionDetails?.readings_summary?.wh_delivered ?? 0;
+                const socStartPct = activeSession.soc_start_pct ?? 0;
+                const socTargetPct = activeSession.soc_target_pct ?? 100;
+                const estimatedSoc = Math.min(
+                  socTargetPct,
+                  socStartPct + (whDelivered / effectiveCapacity) * 100,
+                );
+                const fillPct = Math.max(0, estimatedSoc - socStartPct);
+                const unfilledPct = Math.max(0, socTargetPct - estimatedSoc);
+                const etaText = formatEta(activeSession, sessionDetails?.readings_summary, liveApower);
+
+                return (
+                  <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
+                    {/* Current SOC float label — aligned above the pip */}
+                    <div className="mb-1 flex w-full items-end">
+                      <div className="flex-shrink-0" style={{ width: `${estimatedSoc}%` }} />
+                      <span className="-translate-x-1/2 transform whitespace-nowrap text-xs font-semibold text-slate-200">
+                        ~{Math.round(estimatedSoc)}%
+                      </span>
+                    </div>
+
+                    {/* Bar track */}
+                    <div className="relative flex h-2.5 w-full items-center rounded-full bg-slate-700/50">
+                      {/* Dead zone left of start */}
+                      {socStartPct > 0 && (
+                        <div className="h-full flex-shrink-0" style={{ width: `${socStartPct}%` }} />
+                      )}
+                      {/* Green fill: soc_start_pct → estimatedSoc */}
+                      {fillPct > 0 && (
+                        <div className="h-full flex-shrink-0 bg-emerald-500" style={{ width: `${fillPct}%` }} />
+                      )}
+                      {/* Unfilled target zone with pip at its left edge */}
+                      {unfilledPct > 0 ? (
+                        <div
+                          className="relative h-full flex-shrink-0 bg-slate-500/30"
+                          style={{ width: `${unfilledPct}%` }}
+                        >
+                          <div className="absolute -left-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-[color:var(--color-surface-0)] bg-white shadow-sm" />
+                        </div>
+                      ) : (
+                        /* estimatedSoc reached target — pip at right edge of green fill */
+                        <div className="absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 translate-x-2 rounded-full border-2 border-[color:var(--color-surface-0)] bg-emerald-400 shadow-sm" />
+                      )}
+                    </div>
+
+                    {/* Start / target labels below bar */}
+                    <div className="mt-1 flex w-full items-start text-xs text-slate-400">
+                      <div className="flex-shrink-0" style={{ width: `${socStartPct}%` }} />
+                      <span className="-translate-x-1/2 transform whitespace-nowrap">{socStartPct}%</span>
+                      <div className="flex-1" />
+                      <span className="translate-x-1/2 transform whitespace-nowrap">{socTargetPct}%</span>
+                      <div className="flex-shrink-0" style={{ width: `${100 - socTargetPct}%` }} />
+                    </div>
+
+                    {/* Time estimate */}
+                    {etaText && (
+                      <p className="mt-2 text-center text-sm text-emerald-300">{etaText}</p>
+                    )}
+                  </div>
+                );
+              })()}
 
               {error && (
                 <div className="rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
