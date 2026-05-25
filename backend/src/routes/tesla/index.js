@@ -245,7 +245,13 @@ export default async function teslaRoutes(fastify) {
       return reply.code(400).send({ error: 'invalid_percent', message: 'percent must be an integer between 50 and 100' });
     }
 
-    await fleetSetChargeLimit(vin, percent);
+    const vehicleIdRow = db.prepare('SELECT tesla_vehicle_id FROM tesla_config WHERE vin = ?').get(vin);
+    const fleetVehicleId = vehicleIdRow?.tesla_vehicle_id;
+    if (!fleetVehicleId) {
+      return reply.code(400).send({ error: 'no_vehicle_id', message: 'Fleet vehicle ID not configured for this VIN' });
+    }
+
+    await fleetSetChargeLimit(fleetVehicleId, percent);
 
     db.prepare(`
       UPDATE tesla_config
