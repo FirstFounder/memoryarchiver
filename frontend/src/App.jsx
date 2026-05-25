@@ -184,12 +184,13 @@ export default function App() {
   const tabs = [
     { id: 'queues', label: 'Queues' },
     ...(isHub  ? [{ id: 'hub',  label: 'Hub'  }] : []),
-    ...(isCa ? [{ id: 'ca', label: 'CA' }] : []),
     ...(isCoop ? [{ id: 'coop', label: 'Coop' }] : []),
-    ...(isTesla || isMaeving ? [{ id: 'garage', label: 'Garage' }] : []),
+    ...(isTesla ? [{ id: 'garage', label: 'Garage' }] : []),
+    ...(isMaeving ? [{ id: 'maeving', label: 'Maeving' }] : []),
     ...(isTesla ? [{ id: 'tesla', label: 'Tesla' }] : []),
     ...(isAudio    ? [{ id: 'audio',    label: 'Audio'    }] : []),
     ...(isReceipts ? [{ id: 'receipts', label: 'Receipts' }] : []),
+    ...(isCa ? [{ id: 'ca', label: 'CA' }] : []),
   ];
   const showTabBar = tabs.length > 1;
 
@@ -426,21 +427,24 @@ export default function App() {
             <HubPanel />
           )}
 
-          {isCa && activeTab === 'ca' && (
-            <CaPanel />
-          )}
-
           {/* Coop tab */}
           {isCoop && activeTab === 'coop' && (
             <CoopPanel />
           )}
 
-          {(isTesla || isMaeving) && activeTab === 'garage' && (
+          {isTesla && activeTab === 'garage' && (
+            <GaragePanel />
+          )}
+
+          {isMaeving && activeTab === 'maeving' && (
             <>
-              {isTesla && <GaragePanel />}
-              {isMaeving && <MaevingPanel />}
-              {isMaeving && <TripsCard />}
+              <MaevingPanel />
+              <TripsCard />
             </>
+          )}
+
+          {isCa && activeTab === 'ca' && (
+            <CaPanel />
           )}
 
           {isTesla && activeTab === 'tesla' && (
