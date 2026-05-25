@@ -2,10 +2,9 @@ import mqtt from 'mqtt';
 import config from '../config.js';
 import db from '../db/client.js';
 import { setPlugState } from './maevingControl.js';
-import { recordSessionComplete } from './maevingCalibration.js';
 
-const CHARGE_COMPLETE_WATTS = 20;
-const CHARGE_COMPLETE_CONSECUTIVE = 3;
+export const CHARGE_COMPLETE_WATTS = 20;
+export const CHARGE_COMPLETE_CONSECUTIVE = 3;
 
 // deviceId (integer) → live state object
 const deviceState = {};
@@ -14,9 +13,8 @@ const deviceState = {};
 const lastInsertAt = {};  // deviceId → timestamp ms
 const lastApower = {};    // deviceId → last inserted apower
 
-// active session cache for taper/shutoff tracking
+// active session cache for taper recording
 const activeSessionCache = {};     // deviceId → session | null (absent = not yet loaded)
-const consecutiveLowPower = {};    // deviceId → count
 
 let client = null;
 
@@ -141,7 +139,7 @@ export function startMaevingMqtt(logger) {
         }
       }
 
-      // ─── Taper recording + charger auto-shutoff for 100% target sessions ───────
+      // ─── Taper recording for 100% target sessions ───────────────────────────
       try {
         if (!(device.id in activeSessionCache)) {
           const sess = db.prepare(
@@ -179,73 +177,6 @@ export function startMaevingMqtt(logger) {
               INSERT INTO maeving_taper_readings (session_id, apower, aenergy_total, estimated_soc)
               VALUES (?, ?, ?, ?)
             `).run(activeSession.id, apower, aenergy_total, estimatedSoc);
-          }
-
-          if (apower != null) {
-            if (apower < CHARGE_COMPLETE_WATTS) {
-              consecutiveLowPower[device.id] = (consecutiveLowPower[device.id] ?? 0) + 1;
-            } else {
-              consecutiveLowPower[device.id] = 0;
-            }
-
-            if ((consecutiveLowPower[device.id] ?? 0) >= CHARGE_COMPLETE_CONSECUTIVE) {
-              consecutiveLowPower[device.id] = 0;
-              const sessionId = activeSession.id;
-              const deviceIp = device.ip;
-              const sessionDeviceId = device.id;
-              const sessionStartedAt = activeSession.started_at;
-              const priceWindowAvgCents = activeSession.price_window_avg_cents;
-              activeSessionCache[device.id] = null;
-
-              (async () => {
-                try {
-                  await setPlugState(deviceIp, false);
-                } catch (err) {
-                  logger.warn(
-                    { err },
-                    'Maeving: failed to confirm plug off for session %d',
-                    sessionId,
-                  );
-                }
-
-                const closeNow = new Date().toISOString();
-                const stats = sessionReadingsStats(sessionDeviceId, sessionStartedAt);
-                const actual_cost_dollars =
-                  priceWindowAvgCents != null && stats.wh_delivered != null
-                    ? (priceWindowAvgCents * (stats.wh_delivered / 1000)) / 100
-                    : null;
-
-                db.prepare(`
-                  UPDATE maeving_sessions
-                  SET ended_at            = ?,
-                      status              = 'charger_complete',
-                      wh_delivered        = COALESCE(?, wh_delivered),
-                      peak_watts          = COALESCE(?, peak_watts),
-                      avg_watts           = COALESCE(?, avg_watts),
-                      actual_cost_dollars = COALESCE(?, actual_cost_dollars)
-                  WHERE id = ?
-                `).run(
-                  closeNow,
-                  stats.wh_delivered,
-                  stats.peak_watts,
-                  stats.avg_watts,
-                  actual_cost_dollars,
-                  sessionId,
-                );
-
-                try {
-                  recordSessionComplete(sessionId);
-                } catch (err) {
-                  logger.warn(
-                    { err },
-                    'Maeving: recordSessionComplete failed for session %d',
-                    sessionId,
-                  );
-                }
-
-                logger.info('Maeving: charger auto-shutoff detected for session %d', sessionId);
-              })();
-            }
           }
         }
       } catch (err) {

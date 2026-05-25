@@ -1,11 +1,13 @@
 import db from '../db/client.js';
-import { setPlugState } from './maevingControl.js';
+import { getPlugStatus, setPlugState } from './maevingControl.js';
 import { fetchDayAheadPrices, fetchActualPrices, filterOvernightPrices, fetchCurrentHourPrice } from './coMedPrices.js';
-import { sessionReadingsStats, invalidateActiveSessionCache } from './maevingMqtt.js';
+import { sessionReadingsStats, invalidateActiveSessionCache, CHARGE_COMPLETE_WATTS, CHARGE_COMPLETE_CONSECUTIVE } from './maevingMqtt.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
 const MAEVING_BATTERY_KWH = 2.88;
 const OVERNIGHT_WINDOW_START_HOUR = 21;
+
+const completionCounters = {}; // { [sessionId]: number }
 
 let pollingInterval = null;
 let schedulerLogger = null;
@@ -327,6 +329,90 @@ async function runScheduledSessions() {
       `).run(now, stats.wh_delivered, stats.peak_watts, stats.avg_watts,
              cutoffCostDollars, cutoffPriceAvgCents,
              cutoffFixedRateDollars, cutoffHourlySavingsDollars, session.id);
+      invalidateActiveSessionCache(session.device_id);
+    }
+  }
+
+  // --- 100% session completion detection ---
+  const fullTargetSessions = db.prepare(`
+    SELECT s.*, d.ip, d.site_key, d.cost_free
+    FROM maeving_sessions s
+    JOIN maeving_devices d ON d.id = s.device_id
+    WHERE s.status = 'active' AND s.soc_target_pct = 100
+  `).all();
+
+  for (const session of fullTargetSessions) {
+    let plugWatts = null;
+    try {
+      const status = await getPlugStatus(session.ip);
+      plugWatts = status?.apower ?? null;
+    } catch (err) {
+      schedulerLogger?.warn({ err, sessionId: session.id },
+        'Maeving: could not poll plug for 100%% session %d', session.id);
+      completionCounters[session.id] = 0;
+      continue;
+    }
+
+    if (plugWatts !== null && plugWatts < CHARGE_COMPLETE_WATTS) {
+      completionCounters[session.id] = (completionCounters[session.id] ?? 0) + 1;
+      schedulerLogger?.info({ sessionId: session.id, plugWatts,
+        count: completionCounters[session.id] },
+        'Maeving: 100%% session %d low-power reading %d/%d',
+        session.id, completionCounters[session.id], CHARGE_COMPLETE_CONSECUTIVE);
+    } else {
+      completionCounters[session.id] = 0;
+    }
+
+    if ((completionCounters[session.id] ?? 0) >= CHARGE_COMPLETE_CONSECUTIVE) {
+      schedulerLogger?.info({ sessionId: session.id },
+        'Maeving: charger auto-shutoff confirmed for session %d — closing', session.id);
+      delete completionCounters[session.id];
+
+      try { await setPlugState(session.ip, false); } catch (err) {
+        schedulerLogger?.warn({ err }, 'Maeving: failed to cut plug for session %d', session.id);
+      }
+
+      const stats = sessionReadingsStats(session.device_id, session.started_at);
+      const now = new Date().toISOString();
+
+      let actualCostDollars = null;
+      let fixedRateCostDollars = null;
+      let hourlySavingsDollars = null;
+      let priceAvgCents = session.price_window_avg_cents ?? null;
+
+      if (!session.cost_free && stats?.wh_delivered) {
+        if (!priceAvgCents) {
+          try {
+            const priceRows = await fetchCurrentHourPrice();
+            if (priceRows.length) priceAvgCents = priceRows[priceRows.length - 1].price;
+          } catch { /* ignore */ }
+        }
+        if (priceAvgCents) {
+          const totalRate = priceAvgCents + getComedBaseRateCents();
+          actualCostDollars = (totalRate * (stats.wh_delivered / 1000)) / 100;
+          const fixedRate = getComedFixedTotalCents();
+          fixedRateCostDollars = (fixedRate * (stats.wh_delivered / 1000)) / 100;
+          hourlySavingsDollars = fixedRateCostDollars - actualCostDollars;
+        }
+      } else if (session.cost_free) {
+        actualCostDollars = 0;
+        fixedRateCostDollars = 0;
+        hourlySavingsDollars = 0;
+      }
+
+      db.prepare(`
+        UPDATE maeving_sessions
+        SET status = 'charger_complete', ended_at = ?,
+            wh_delivered = ?, peak_watts = ?, avg_watts = ?,
+            actual_cost_dollars = ?, price_window_avg_cents = ?,
+            fixed_rate_cost_dollars = ?, hourly_savings_dollars = ?
+        WHERE id = ?
+      `).run(now,
+        stats?.wh_delivered ?? null, stats?.peak_watts ?? null, stats?.avg_watts ?? null,
+        actualCostDollars, priceAvgCents,
+        fixedRateCostDollars, hourlySavingsDollars,
+        session.id);
+
       invalidateActiveSessionCache(session.device_id);
     }
   }
