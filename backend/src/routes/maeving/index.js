@@ -22,6 +22,15 @@ function getComedBaseRateCents() {
   return (month >= 6 && month <= 9) ? 4.27 : 2.90;
 }
 
+const COMED_FIXED_SUPPLY_CENTS = 9.66; // $0.0966/kWh, same year-round
+
+function getComedFixedTotalCents() {
+  const month = new Date().getMonth() + 1;
+  return COMED_FIXED_SUPPLY_CENTS + ((month >= 6 && month <= 9) ? 4.27 : 2.90);
+  // Summer (Jun-Sep): 9.66 + 4.27 = 13.93 cents/kWh ($0.1393)
+  // Winter (Oct-May): 9.66 + 2.90 = 12.56 cents/kWh ($0.1256)
+}
+
 function readingsStats(deviceId, startedAt) {
   const rows = db.prepare(`
     SELECT apower, aenergy_total
@@ -374,9 +383,21 @@ export default async function maevingRoutes(fastify) {
       actualCostDollars = (totalRateCents * (stats.wh_delivered / 1000)) / 100;
     }
 
+    let fixedRateCostDollars = null;
+    let hourlySavingsDollars = null;
+
+    if (stats.wh_delivered && !device.cost_free) {
+      fixedRateCostDollars = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+      if (actualCostDollars != null) {
+        hourlySavingsDollars = fixedRateCostDollars - actualCostDollars;
+      }
+    }
+
     if (device.cost_free) {
       actualCostDollars = 0;
       priceAvgCents = null;
+      fixedRateCostDollars = 0;
+      hourlySavingsDollars = 0;
     }
 
     db.prepare(`
@@ -387,7 +408,9 @@ export default async function maevingRoutes(fastify) {
           peak_watts             = COALESCE(?, peak_watts),
           avg_watts              = COALESCE(?, avg_watts),
           actual_cost_dollars    = COALESCE(?, actual_cost_dollars),
-          price_window_avg_cents = COALESCE(price_window_avg_cents, ?)
+          price_window_avg_cents = COALESCE(price_window_avg_cents, ?),
+          fixed_rate_cost_dollars = COALESCE(?, fixed_rate_cost_dollars),
+          hourly_savings_dollars  = COALESCE(?, hourly_savings_dollars)
       WHERE id = ?
     `).run(
       now,
@@ -396,6 +419,8 @@ export default async function maevingRoutes(fastify) {
       stats.avg_watts,
       actualCostDollars,
       priceAvgCents,
+      fixedRateCostDollars,
+      hourlySavingsDollars,
       session.id,
     );
 

@@ -15,6 +15,15 @@ function getComedBaseRateCents() {
   return (month >= 6 && month <= 9) ? 4.27 : 2.90;
 }
 
+const COMED_FIXED_SUPPLY_CENTS = 9.66; // $0.0966/kWh, same year-round
+
+function getComedFixedTotalCents() {
+  const month = new Date().getMonth() + 1;
+  return COMED_FIXED_SUPPLY_CENTS + ((month >= 6 && month <= 9) ? 4.27 : 2.90);
+  // Summer (Jun-Sep): 9.66 + 4.27 = 13.93 cents/kWh ($0.1393)
+  // Winter (Oct-May): 9.66 + 2.90 = 12.56 cents/kWh ($0.1256)
+}
+
 function getCurrentCtHour() {
   return Number(
     new Intl.DateTimeFormat('en-US', {
@@ -277,20 +286,35 @@ async function runScheduledSessions() {
         cutoffCostDollars = (totalRateCents * (stats.wh_delivered / 1000)) / 100;
       }
 
+      let cutoffFixedRateDollars = null;
+      let cutoffHourlySavingsDollars = null;
+
+      if (stats.wh_delivered && !session.cost_free) {
+        cutoffFixedRateDollars = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+        if (cutoffCostDollars != null) {
+          cutoffHourlySavingsDollars = cutoffFixedRateDollars - cutoffCostDollars;
+        }
+      }
+
       if (session.cost_free) {
         cutoffCostDollars = 0;
         cutoffPriceAvgCents = null;
+        cutoffFixedRateDollars = 0;
+        cutoffHourlySavingsDollars = 0;
       }
 
       db.prepare(`
         UPDATE maeving_sessions
         SET status = 'complete', ended_at = ?,
             wh_delivered = ?, peak_watts = ?, avg_watts = ?,
-            actual_cost_dollars    = COALESCE(?, actual_cost_dollars),
-            price_window_avg_cents = COALESCE(price_window_avg_cents, ?)
+            actual_cost_dollars     = COALESCE(?, actual_cost_dollars),
+            price_window_avg_cents  = COALESCE(price_window_avg_cents, ?),
+            fixed_rate_cost_dollars = COALESCE(?, fixed_rate_cost_dollars),
+            hourly_savings_dollars  = COALESCE(?, hourly_savings_dollars)
         WHERE id = ?
       `).run(now, stats.wh_delivered, stats.peak_watts, stats.avg_watts,
-             cutoffCostDollars, cutoffPriceAvgCents, session.id);
+             cutoffCostDollars, cutoffPriceAvgCents,
+             cutoffFixedRateDollars, cutoffHourlySavingsDollars, session.id);
       invalidateActiveSessionCache(session.device_id);
     }
   }

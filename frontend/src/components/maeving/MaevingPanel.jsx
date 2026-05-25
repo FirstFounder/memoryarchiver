@@ -908,12 +908,6 @@ export function MaevingPanel() {
                 aggregateDist > 0 && session.wh_delivered != null
                   ? session.wh_delivered / aggregateDist
                   : null;
-              const cost =
-                session.actual_cost_dollars != null
-                  ? `$${session.actual_cost_dollars.toFixed(2)}`
-                  : session.estimated_cost_dollars != null
-                    ? `$${session.estimated_cost_dollars.toFixed(2)}*`
-                    : '—';
               const needsCalibration =
                 session.calibration_complete === 0 &&
                 (session.status === 'complete' || session.status === 'charger_complete');
@@ -944,7 +938,40 @@ export function MaevingPanel() {
                   <span className="text-slate-500">
                     {whPerMile != null ? `${whPerMile.toFixed(1)} Wh/mi` : '—'}
                   </span>
-                  <span className="text-slate-400">{cost}</span>
+                  {device?.cost_free ? (
+                    <span className="text-slate-400">
+                      $0.00{' '}
+                      <span className="text-xs text-slate-500">(employer)</span>
+                    </span>
+                  ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
+                    <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                      <span className="text-slate-400">
+                        Hourly: ${session.actual_cost_dollars.toFixed(2)}
+                      </span>
+                      <span className="text-slate-500">
+                        Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
+                      </span>
+                      <span
+                        className={
+                          (session.hourly_savings_dollars ?? 0) > 0
+                            ? 'text-emerald-400'
+                            : 'text-amber-400'
+                        }
+                      >
+                        Saved: ${(session.hourly_savings_dollars ?? 0).toFixed(2)}
+                      </span>
+                    </span>
+                  ) : session.actual_cost_dollars != null ? (
+                    <span className="text-slate-400">
+                      ${session.actual_cost_dollars.toFixed(2)}
+                    </span>
+                  ) : session.estimated_cost_dollars != null ? (
+                    <span className="text-slate-400">
+                      ${session.estimated_cost_dollars.toFixed(2)}*
+                    </span>
+                  ) : (
+                    <span className="text-slate-400">—</span>
+                  )}
                 </div>
               );
             })}
