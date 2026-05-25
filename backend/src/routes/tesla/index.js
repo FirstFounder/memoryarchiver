@@ -419,6 +419,22 @@ export default async function teslaRoutes(fastify) {
     });
   });
 
+  fastify.get('/api/tesla/sessions/:vin/recent', async (req, reply) => {
+    const { vin } = req.params;
+    const vehicle = getVehicle(vin);
+    if (!vehicle) {
+      return reply.code(404).send({ error: 'not_found', message: `Unknown VIN: ${vin}` });
+    }
+    const limit = Math.min(Number(req.query.limit ?? 5) || 5, 20);
+    const rows = db.prepare(`
+      SELECT * FROM tesla_sessions
+      WHERE vin = ? AND session_start IS NOT NULL AND session_end IS NOT NULL
+      ORDER BY session_start DESC, id DESC
+      LIMIT ?
+    `).all(vin, limit);
+    return reply.send(rows.map(serializeSession));
+  });
+
   fastify.post('/api/tesla/plan/:vin/recompute', async (req, reply) => {
     const { vin } = req.params;
     const vehicle = getVehicle(vin);

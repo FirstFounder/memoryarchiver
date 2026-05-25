@@ -27,6 +27,7 @@ import { startCoopScheduler, stopCoopScheduler } from './lib/coopScheduler.js';
 import teslaRoutes from './routes/tesla/index.js';
 import { startTeslaScheduler, stopTeslaScheduler } from './lib/teslaScheduler.js';
 import { startTeslaMqtt, stopTeslaMqtt } from './lib/teslaMqtt.js';
+import { startTeslaChargeWatcher, stopTeslaChargeWatcher } from './lib/teslaChargeWatcher.js';
 import caRoutes from './routes/ca/index.js';
 import audioRoutes from './routes/audio/index.js';
 import { startAudioWorker, stopAudioWorker } from './worker/audioWorker.js';
@@ -174,6 +175,7 @@ try {
   if (config.coopEnabled) startCoopScheduler();
   if (config.teslaEnabled) startTeslaScheduler().catch((err) => fastify.log.error(err));
   if (config.teslaEnabled && config.teslaMqttEnabled) startTeslaMqtt(fastify.log);
+  if (config.teslaEnabled && config.teslaMqttEnabled) startTeslaChargeWatcher(fastify.log);
   if (config.audioEnabled) startAudioWorker();
   if (config.maevingEnabled) startMaevingMqtt(fastify.log);
   if (config.maevingEnabled) startMaevingScheduler(fastify.log);
@@ -191,6 +193,7 @@ const shutdown = async (signal) => {
   if (config.coopEnabled) stopCoopScheduler();
   if (config.teslaEnabled) stopTeslaScheduler();
   if (config.teslaEnabled && config.teslaMqttEnabled) stopTeslaMqtt();
+  if (config.teslaEnabled && config.teslaMqttEnabled) stopTeslaChargeWatcher();
   if (config.audioEnabled) stopAudioWorker();
   if (config.maevingEnabled) stopMaevingMqtt();
   if (config.maevingEnabled) stopMaevingScheduler();

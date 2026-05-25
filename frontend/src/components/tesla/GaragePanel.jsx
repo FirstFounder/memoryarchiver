@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { getMqttState, getVehicles, patchVehicleConfig, setChargeLimit } from '../../api/tesla.js';
 import { useTeslaStore } from '../../store/teslaStore.js';
+import { ChargeHistoryCard } from './ChargeHistoryCard.jsx';
 
 const STALE_MS = 15 * 60 * 1000;
 
@@ -329,27 +330,31 @@ export function GaragePanel() {
       </section>
 
       {selectedVehicle && (
-        <section className="grid gap-6 lg:grid-cols-3">
-          <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
-            <LiveStatusSection mqttCar={mqttCar} fresh={mqttFresh} />
-          </div>
+        <>
+          <section className="grid gap-6 lg:grid-cols-3">
+            <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
+              <LiveStatusSection mqttCar={mqttCar} fresh={mqttFresh} />
+            </div>
 
-          <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
-            <ChargeLimitSection
-              vin={selectedVehicle.vin}
-              initialLimit={initialLimit}
-            />
-          </div>
+            <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
+              <ChargeLimitSection
+                vin={selectedVehicle.vin}
+                initialLimit={initialLimit}
+              />
+            </div>
 
-          <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
-            <DepartureSection
-              vin={selectedVehicle.vin}
-              initialTime={selectedVehicle.departure_time ?? '07:30'}
-              vehicles={vehicles}
-              setVehicles={setVehicles}
-            />
-          </div>
-        </section>
+            <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
+              <DepartureSection
+                vin={selectedVehicle.vin}
+                initialTime={selectedVehicle.departure_time ?? '07:30'}
+                vehicles={vehicles}
+                setVehicles={setVehicles}
+              />
+            </div>
+          </section>
+
+          <ChargeHistoryCard vin={selectedVehicle.vin} />
+        </>
       )}
     </div>
   );

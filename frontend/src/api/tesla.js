@@ -85,6 +85,12 @@ export async function getMqttState() {
   return res.json();
 }
 
+export async function getRecentSessions(vin, limit = 5) {
+  const res = await fetch(`/api/tesla/sessions/${encodeURIComponent(vin)}/recent?limit=${limit}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export async function getFleetApiCalls(months = 3) {
   return apiFetch(`/api/tesla/fleet-api-calls?months=${months}`);
 }
