@@ -16,6 +16,7 @@ import {
   recordSessionComplete,
   skipCalibration,
 } from '../../lib/maevingCalibration.js';
+import { computeRebelCost } from '../../lib/eiaGasPrice.js';
 
 function getComedBaseRateCents() {
   const month = new Date().getMonth() + 1; // 1-12
@@ -124,6 +125,17 @@ export default async function maevingRoutes(fastify) {
     return reply.code(204).send();
   });
 
+  // ── Rebel cost ────────────────────────────────────────────────────────────────
+
+  fastify.get('/api/maeving/rebel-cost', async (req, reply) => {
+    const miles = parseFloat(req.query.miles);
+    if (!req.query.miles || !isFinite(miles) || miles <= 0) {
+      return reply.code(400).send({ error: 'miles must be a positive number' });
+    }
+    const { cost, stale } = await computeRebelCost(miles);
+    return reply.send({ cost, stale, miles, mpg: 61.6 });
+  });
+
   // ── Sessions ──────────────────────────────────────────────────────────────────
 
   fastify.get('/api/maeving/sessions', async (req, reply) => {
@@ -163,6 +175,12 @@ export default async function maevingRoutes(fastify) {
       leg_3_duration_min,
       leg_4_trip_id,
       leg_4_duration_min,
+      leg_1_rebel_cost,
+      leg_2_rebel_cost,
+      leg_3_rebel_cost,
+      leg_4_rebel_cost,
+      rebel_cost_total,
+      rebel_cost_stale,
     } = req.body ?? {};
     if (!device_id) return reply.code(400).send({ error: 'device_id required' });
 
@@ -182,8 +200,10 @@ export default async function maevingRoutes(fastify) {
          leg_1_trip_id, leg_1_duration_min,
          leg_2_trip_id, leg_2_duration_min,
          leg_3_trip_id, leg_3_duration_min,
-         leg_4_trip_id, leg_4_duration_min)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         leg_4_trip_id, leg_4_duration_min,
+         leg_1_rebel_cost, leg_2_rebel_cost, leg_3_rebel_cost, leg_4_rebel_cost,
+         rebel_cost_total, rebel_cost_stale)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       device_id,
       now,
@@ -202,6 +222,12 @@ export default async function maevingRoutes(fastify) {
       leg_3_duration_min ?? null,
       leg_4_trip_id ?? null,
       leg_4_duration_min ?? null,
+      leg_1_rebel_cost ?? null,
+      leg_2_rebel_cost ?? null,
+      leg_3_rebel_cost ?? null,
+      leg_4_rebel_cost ?? null,
+      rebel_cost_total ?? null,
+      rebel_cost_stale ?? 0,
     );
 
     invalidateActiveSessionCache(device_id);

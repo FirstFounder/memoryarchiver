@@ -95,3 +95,9 @@ export async function skipCalibration(id) {
     method: 'POST',
   });
 }
+
+export async function getRebelCost(miles) {
+  const res = await fetch(`/api/maeving/rebel-cost?miles=${miles}`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}

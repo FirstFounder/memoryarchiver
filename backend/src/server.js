@@ -36,6 +36,7 @@ import receiptsRoutes from './routes/receipts/index.js';
 import maevingRoutes from './routes/maeving/index.js';
 import { startMaevingMqtt, stopMaevingMqtt } from './lib/maevingMqtt.js';
 import { startMaevingScheduler, stopMaevingScheduler } from './lib/maevingScheduler.js';
+import { initEiaCache } from './lib/eiaGasPrice.js';
 
 const fastify = Fastify({
   logger: {
@@ -179,6 +180,7 @@ try {
   if (config.audioEnabled) startAudioWorker();
   if (config.maevingEnabled) startMaevingMqtt(fastify.log);
   if (config.maevingEnabled) startMaevingScheduler(fastify.log);
+  if (config.maevingEnabled) initEiaCache(fastify.log).catch((err) => fastify.log.error(err));
 } catch (err) {
   fastify.log.error(err);
   process.exit(1);

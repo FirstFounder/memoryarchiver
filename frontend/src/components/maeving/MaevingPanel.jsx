@@ -3,6 +3,7 @@ import {
   calibrateSession,
   getConfig,
   getDevices,
+  getRebelCost,
   getSession,
   getSessions,
   getSessionTaper,
@@ -146,6 +147,8 @@ export function MaevingPanel() {
   const [skipping, setSkipping] = useState(false);
   const [taperData, setTaperData] = useState(null);
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
+  const [legRebelCosts, setLegRebelCosts] = useState({});
+  const [rebelCostStale, setRebelCostStale] = useState(false);
   const detailsIntervalRef = useRef(null);
   const priceRetryRef = useRef(null);
   const pendingSessionIdRef = useRef(null);
@@ -265,6 +268,8 @@ export function MaevingPanel() {
     setPendingPrices(false);
     setError('');
     setLegs([{ trip_id: '', duration_min: '' }]);
+    setLegRebelCosts({});
+    setRebelCostStale(false);
     if (priceRetryRef.current) {
       clearTimeout(priceRetryRef.current);
       priceRetryRef.current = null;
@@ -290,8 +295,15 @@ export function MaevingPanel() {
       if (leg.trip_id) {
         legData[`leg_${i + 1}_trip_id`] = Number(leg.trip_id);
         if (leg.duration_min) legData[`leg_${i + 1}_duration_min`] = Number(leg.duration_min);
+        const rc = legRebelCosts[i];
+        if (rc?.cost != null) legData[`leg_${i + 1}_rebel_cost`] = rc.cost;
       }
     });
+    const total = Object.values(legRebelCosts).reduce(
+      (sum, rc) => (rc?.cost != null ? sum + rc.cost : sum), 0,
+    );
+    if (total > 0) legData.rebel_cost_total = total;
+    legData.rebel_cost_stale = rebelCostStale ? 1 : 0;
     return legData;
   }
 
@@ -746,7 +758,22 @@ export function MaevingPanel() {
                       value={leg.trip_id}
                       onChange={(e) => {
                         updateLeg(i, 'trip_id', e.target.value);
-                        if (!e.target.value) updateLeg(i, 'duration_min', '');
+                        if (!e.target.value) {
+                          updateLeg(i, 'duration_min', '');
+                          setLegRebelCosts((prev) => {
+                            const next = { ...prev };
+                            delete next[i];
+                            return next;
+                          });
+                        } else {
+                          const trip = trips.find((t) => t.id === Number(e.target.value));
+                          if (trip) {
+                            getRebelCost(trip.distance_miles).then((result) => {
+                              setLegRebelCosts((prev) => ({ ...prev, [i]: result }));
+                              if (result.stale) setRebelCostStale(true);
+                            }).catch(() => {});
+                          }
+                        }
                       }}
                     >
                       <option value="">— no trip —</option>
@@ -816,6 +843,47 @@ export function MaevingPanel() {
                     Based on previous charge to {tripStats.prev_max_soc_pct}% — effective pack:{' '}
                     {Math.round(config?.effective_capacity_wh ?? TOTAL_WH).toLocaleString()} Wh
                   </p>
+                </div>
+              )}
+
+              {/* Rebel 250 cost comparison */}
+              {Object.keys(legRebelCosts).length > 0 && (
+                <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
+                  <div className="flex flex-wrap items-center gap-5 text-sm">
+                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                      vs Rebel 250
+                    </span>
+                    {legs.map((leg, i) => {
+                      const rc = legRebelCosts[i];
+                      if (!leg.trip_id || !rc || rc.cost == null) return null;
+                      return (
+                        <span key={i} className="text-slate-400">
+                          Leg {i + 1}:{' '}
+                          <span className={`font-semibold text-amber-400${rc.stale ? ' animate-pulse' : ''}`}>
+                            ${rc.cost.toFixed(2)}
+                          </span>
+                        </span>
+                      );
+                    })}
+                    {(() => {
+                      const entries = Object.values(legRebelCosts).filter((rc) => rc?.cost != null);
+                      if (entries.length < 2) return null;
+                      const total = entries.reduce((s, rc) => s + rc.cost, 0);
+                      return (
+                        <span className="text-slate-400">
+                          Total:{' '}
+                          <span className={`font-semibold text-amber-400${rebelCostStale ? ' animate-pulse' : ''}`}>
+                            ${total.toFixed(2)}
+                          </span>
+                        </span>
+                      );
+                    })()}
+                  </div>
+                  {rebelCostStale && (
+                    <p className="mt-1 text-xs text-slate-500">
+                      Gas price may be outdated (EIA cache stale)
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -899,7 +967,7 @@ export function MaevingPanel() {
               <span>SOC range</span>
               <span>Distance</span>
               <span>Efficiency</span>
-              <span>Cost</span>
+              <span>Cost / Rebel</span>
             </div>
             {recentSessions.map((session) => {
               const device = devices.find((d) => d.id === session.device_id);
@@ -942,6 +1010,20 @@ export function MaevingPanel() {
                     <span className="text-slate-400">
                       $0.00{' '}
                       <span className="text-xs text-slate-500">(employer)</span>
+                    </span>
+                  ) : session.rebel_cost_total != null && session.actual_cost_dollars != null ? (
+                    <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                      <span className="text-green-400">
+                        Hourly: ${session.actual_cost_dollars.toFixed(2)}
+                      </span>
+                      {session.fixed_rate_cost_dollars != null && (
+                        <span className="text-amber-400">
+                          Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
+                        </span>
+                      )}
+                      <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                        vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
+                      </span>
                     </span>
                   ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
                     <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
