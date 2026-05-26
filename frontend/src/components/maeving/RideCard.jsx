@@ -111,7 +111,7 @@ export function RideCard() {
             type="button"
             onClick={handleFinish}
             disabled={finishing}
-            className="min-h-12 w-full rounded-2xl border border-red-700/60 bg-red-900/30 px-6 text-base font-semibold text-red-300 transition-colors hover:bg-red-900/60 disabled:opacity-60"
+            className="min-h-16 w-full rounded-2xl border border-red-700/60 bg-red-900/30 px-6 text-lg font-semibold text-red-300 transition-colors hover:bg-red-900/60 disabled:opacity-60"
           >
             {finishing ? 'Finishing…' : 'Finish ■'}
           </button>
@@ -130,7 +130,7 @@ export function RideCard() {
           <button
             type="button"
             onClick={() => { setUiState('selecting'); setError(''); }}
-            className="rounded-xl border border-[color:var(--color-border)] px-4 py-2 text-sm text-slate-300 transition-colors hover:border-slate-500"
+            className="min-h-16 w-full rounded-2xl border border-[color:var(--color-border)] px-6 text-lg font-semibold text-slate-300 transition-colors hover:border-slate-500"
           >
             New Ride ▶
           </button>
