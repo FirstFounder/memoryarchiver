@@ -8,11 +8,11 @@ export async function getDeviceState(id) {
   return apiFetch(`/api/maeving/devices/${id}/state`);
 }
 
-export async function getTrips() {
+export async function getLegs() {
   return apiFetch('/api/maeving/trips');
 }
 
-export async function createTrip(data) {
+export async function createLeg(data) {
   return apiFetch('/api/maeving/trips', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -20,7 +20,7 @@ export async function createTrip(data) {
   });
 }
 
-export async function updateTrip(id, data) {
+export async function updateLeg(id, data) {
   return apiFetch(`/api/maeving/trips/${id}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -28,8 +28,32 @@ export async function updateTrip(id, data) {
   });
 }
 
-export async function deleteTrip(id) {
+export async function deleteLeg(id) {
   return apiFetch(`/api/maeving/trips/${id}`, { method: 'DELETE' });
+}
+
+export async function getActiveRide() {
+  return apiFetch('/api/maeving/rides/active');
+}
+
+export async function getPendingRides() {
+  return apiFetch('/api/maeving/rides/pending');
+}
+
+export async function startRide(data) {
+  return apiFetch('/api/maeving/rides/start', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
+export async function finishRide(id) {
+  return apiFetch(`/api/maeving/rides/${id}/finish`, { method: 'POST' });
+}
+
+export async function deleteRide(id) {
+  return apiFetch(`/api/maeving/rides/${id}`, { method: 'DELETE' });
 }
 
 export async function startSession(data) {

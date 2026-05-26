@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   calibrateSession,
+  deleteRide,
   getConfig,
   getDevices,
+  getLegs,
+  getPendingRides,
   getRebelCost,
   getSession,
   getSessions,
   getSessionTaper,
-  getTrips,
   scheduleOvernight,
   skipCalibration,
   startSession,
@@ -72,6 +74,14 @@ function formatChargeTime(startedAt, endedAt) {
   return formatMinutes(diffMin);
 }
 
+function formatTimeRange(startedAt, finishedAt) {
+  if (!startedAt) return '';
+  const fmt = (iso) =>
+    new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (!finishedAt) return fmt(startedAt);
+  return `${fmt(startedAt)}–${fmt(finishedAt)}`;
+}
+
 function msUntilCtTime(targetHour, targetMinute) {
   const now = Date.now();
   const ctDateStr = (d) =>
@@ -122,6 +132,14 @@ function computeLocalTripStats(legs, trips, config, socStart) {
   };
 }
 
+function getSessionRowClass(session, device) {
+  if (device?.cost_free) return 'bg-orange-950/30 border-orange-800/40';
+  const legCount = [1, 2, 3, 4].filter((n) => session[`leg_${n}_trip_id`] != null).length;
+  if (legCount === 1) return 'bg-green-950/30 border-green-800/40';
+  if (legCount > 1) return 'bg-amber-950/30 border-amber-800/40';
+  return 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]';
+}
+
 
 export function MaevingPanel() {
   const [devices, setDevices] = useState([]);
@@ -149,6 +167,9 @@ export function MaevingPanel() {
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
   const [legRebelCosts, setLegRebelCosts] = useState({});
   const [rebelCostStale, setRebelCostStale] = useState(false);
+  // Prestaged rides
+  const [pendingRides, setPendingRides] = useState([]);
+  const [checkedRideIds, setCheckedRideIds] = useState(() => new Set());
   const detailsIntervalRef = useRef(null);
   const priceRetryRef = useRef(null);
   const pendingSessionIdRef = useRef(null);
@@ -159,7 +180,7 @@ export function MaevingPanel() {
       const [devs, all, tripList, cfg] = await Promise.all([
         getDevices(),
         getSessions({}),
-        getTrips(),
+        getLegs(),
         getConfig(),
       ]);
       setDevices(devs);
@@ -247,6 +268,18 @@ export function MaevingPanel() {
     };
   }, [activeSession?.id, activeSession?.soc_target_pct]);
 
+  // Fetch pending rides when plug-in form is visible (device selected, no active session)
+  useEffect(() => {
+    if (!selectedId || activeSession) return;
+    let mounted = true;
+    getPendingRides().then((rides) => {
+      if (!mounted) return;
+      setPendingRides(rides);
+      setCheckedRideIds(new Set(rides.map((r) => r.id)));
+    }).catch(() => {});
+    return () => { mounted = false; };
+  }, [selectedId, activeSession?.id]);
+
   // Clean up timers on unmount
   useEffect(() => {
     return () => {
@@ -264,6 +297,12 @@ export function MaevingPanel() {
 
   const tripStats = computeLocalTripStats(legs, trips, config, socStart);
 
+  // Leg limit accounting
+  const checkedCount = checkedRideIds.size;
+  const manualLegsWithTrip = legs.filter((l) => l.trip_id !== '').length;
+  const totalLegCount = checkedCount + manualLegsWithTrip;
+  const isOverLimit = totalLegCount > 4;
+
   function resetPlugInForm() {
     setChargeMode('now');
     setDepartureTime('07:30');
@@ -272,6 +311,8 @@ export function MaevingPanel() {
     setLegs([{ trip_id: '', duration_min: '' }]);
     setLegRebelCosts({});
     setRebelCostStale(false);
+    setPendingRides([]);
+    setCheckedRideIds(new Set());
     if (priceRetryRef.current) {
       clearTimeout(priceRetryRef.current);
       priceRetryRef.current = null;
@@ -280,7 +321,7 @@ export function MaevingPanel() {
   }
 
   function addLeg() {
-    if (legs.length < 4) setLegs((prev) => [...prev, { trip_id: '', duration_min: '' }]);
+    if (checkedCount + legs.length < 4) setLegs((prev) => [...prev, { trip_id: '', duration_min: '' }]);
   }
 
   function removeLeg(index) {
@@ -291,22 +332,55 @@ export function MaevingPanel() {
     setLegs((prev) => prev.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
   }
 
+  function toggleRideCheck(id) {
+    setCheckedRideIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
   function buildLegData() {
     const legData = {};
-    legs.forEach((leg, i) => {
-      if (leg.trip_id) {
-        legData[`leg_${i + 1}_trip_id`] = Number(leg.trip_id);
-        if (leg.duration_min) legData[`leg_${i + 1}_duration_min`] = Number(leg.duration_min);
-        const rc = legRebelCosts[i];
-        if (rc?.cost != null) legData[`leg_${i + 1}_rebel_cost`] = rc.cost;
+    const checkedRides = pendingRides
+      .filter((r) => checkedRideIds.has(r.id))
+      .sort((a, b) => new Date(a.started_at) - new Date(b.started_at));
+
+    let slotIdx = 0;
+
+    // Prestaged rides fill first slots
+    for (const ride of checkedRides) {
+      if (slotIdx >= 4) break;
+      slotIdx++;
+      legData[`leg_${slotIdx}_trip_id`] = ride.trip_id;
+      if (ride.duration_min != null) {
+        legData[`leg_${slotIdx}_duration_min`] = Math.round(ride.duration_min);
       }
+    }
+
+    // Manual legs fill remaining slots
+    legs.forEach((leg, i) => {
+      if (!leg.trip_id || slotIdx >= 4) return;
+      slotIdx++;
+      legData[`leg_${slotIdx}_trip_id`] = Number(leg.trip_id);
+      if (leg.duration_min) legData[`leg_${slotIdx}_duration_min`] = Number(leg.duration_min);
+      const rc = legRebelCosts[i];
+      if (rc?.cost != null) legData[`leg_${slotIdx}_rebel_cost`] = rc.cost;
     });
+
     const total = Object.values(legRebelCosts).reduce(
       (sum, rc) => (rc?.cost != null ? sum + rc.cost : sum), 0,
     );
     if (total > 0) legData.rebel_cost_total = total;
     legData.rebel_cost_stale = rebelCostStale ? 1 : 0;
     return legData;
+  }
+
+  async function consumeCheckedRides() {
+    const ids = [...checkedRideIds];
+    if (ids.length === 0) return;
+    Promise.all(ids.map((id) => deleteRide(id))).catch(() => {});
   }
 
   async function handleChargeNow() {
@@ -321,6 +395,7 @@ export function MaevingPanel() {
         charge_mode: 'now',
         ...buildLegData(),
       });
+      consumeCheckedRides();
       setActiveSessions((prev) => ({ ...prev, [selectedId]: session }));
       resetPlugInForm();
     } catch (err) {
@@ -344,6 +419,7 @@ export function MaevingPanel() {
         ...buildLegData(),
       });
 
+      consumeCheckedRides();
       setActiveSessions((prev) => ({ ...prev, [selectedId]: session }));
 
       const schedResult = await scheduleOvernight(session.id, { departure_time: departureTime });
@@ -803,12 +879,56 @@ export function MaevingPanel() {
                 </div>
               </div>
 
+              {/* Prestaged rides */}
+              {pendingRides.length > 0 && (
+                <div className="flex flex-col gap-2">
+                  <p className="text-xs font-semibold uppercase tracking-wider text-slate-500">
+                    Prestaged Rides
+                  </p>
+                  {pendingRides.map((ride) => {
+                    const checked = checkedRideIds.has(ride.id);
+                    return (
+                      <label
+                        key={ride.id}
+                        className={`flex cursor-pointer items-center gap-3 rounded-2xl border px-4 py-3 text-sm transition-colors ${
+                          checked
+                            ? 'border-emerald-700/50 bg-emerald-950/20'
+                            : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] opacity-60'
+                        }`}
+                      >
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleRideCheck(ride.id)}
+                          className="h-4 w-4 accent-emerald-500"
+                        />
+                        <span className="flex-1 font-semibold text-slate-200">{ride.trip_name}</span>
+                        <span className="text-slate-400">{ride.trip_miles} mi</span>
+                        {ride.duration_min != null && (
+                          <span className="text-slate-400">{Math.round(ride.duration_min)} min</span>
+                        )}
+                        <span className="text-slate-500 text-xs">
+                          {formatTimeRange(ride.started_at, ride.finished_at)}
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* Over-limit warning */}
+              {isOverLimit && (
+                <div className="rounded-2xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
+                  {totalLegCount} legs selected — maximum is 4. Uncheck prestaged rides or remove manual legs.
+                </div>
+              )}
+
               {/* Trip legs */}
               <div className="flex flex-col gap-2">
                 {legs.map((leg, i) => (
                   <div key={i} className="flex flex-wrap items-center gap-3">
                     <label className="w-12 text-sm text-slate-400">
-                      Leg {i + 1}
+                      Leg {checkedCount + i + 1}
                     </label>
                     <select
                       className="flex-1 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200 focus:outline-none"
@@ -863,7 +983,7 @@ export function MaevingPanel() {
                     )}
                   </div>
                 ))}
-                {legs.length < 4 && (
+                {(checkedCount + legs.length) < 4 && (
                   <button
                     type="button"
                     onClick={addLeg}
@@ -915,7 +1035,7 @@ export function MaevingPanel() {
                       if (!leg.trip_id || !rc || rc.cost == null) return null;
                       return (
                         <span key={i} className="text-slate-400">
-                          Leg {i + 1}:{' '}
+                          Leg {checkedCount + i + 1}:{' '}
                           <span className={`font-semibold text-amber-400${rc.stale ? ' animate-pulse' : ''}`}>
                             ${rc.cost.toFixed(2)}
                           </span>
@@ -970,7 +1090,7 @@ export function MaevingPanel() {
                     <button
                       type="button"
                       onClick={handleChargeNow}
-                      disabled={starting}
+                      disabled={starting || isOverLimit}
                       className="min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60"
                     >
                       {starting ? 'Logging…' : 'Charge Now'}
@@ -989,7 +1109,7 @@ export function MaevingPanel() {
                     <button
                       type="button"
                       onClick={handleScheduleOvernight}
-                      disabled={starting}
+                      disabled={starting || isOverLimit}
                       className="min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60"
                     >
                       {starting ? 'Scheduling…' : 'Schedule Overnight Charge'}
@@ -1030,10 +1150,11 @@ export function MaevingPanel() {
               const needsCalibration =
                 session.calibration_complete === 0 &&
                 (session.status === 'complete' || session.status === 'charger_complete');
+              const rowClass = getSessionRowClass(session, device);
               return (
                 <div
                   key={session.id}
-                  className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm ${device?.cost_free ? 'bg-orange-950/30 border-orange-800/40' : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]'}`}
+                  className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
                 >
                   <span className="font-semibold text-slate-300">
                     {device?.site_key ?? '?'}

@@ -73,7 +73,7 @@ export default async function maevingRoutes(fastify) {
     return reply.send(getDeviceState(device.id));
   });
 
-  // ── Trips ─────────────────────────────────────────────────────────────────────
+  // ── Trips (Legs) ──────────────────────────────────────────────────────────────
 
   fastify.get('/api/maeving/trips', async (_req, reply) => {
     return reply.send(
@@ -123,6 +123,95 @@ export default async function maevingRoutes(fastify) {
 
     db.prepare('DELETE FROM maeving_trips WHERE id = ?').run(trip.id);
     return reply.code(204).send();
+  });
+
+  // ── Rides ─────────────────────────────────────────────────────────────────────
+
+  fastify.get('/api/maeving/rides/active', async (_req, reply) => {
+    const ride = db.prepare(`
+      SELECT r.id, r.trip_id, r.started_at, r.finished_at, r.duration_min,
+             t.description AS trip_name, t.distance_miles AS trip_miles
+      FROM maeving_rides r
+      JOIN maeving_trips t ON t.id = r.trip_id
+      WHERE r.finished_at IS NULL
+      LIMIT 1
+    `).get();
+    return reply.send(ride ?? null);
+  });
+
+  fastify.get('/api/maeving/rides/pending', async (_req, reply) => {
+    const rides = db.prepare(`
+      SELECT r.id, r.trip_id, r.started_at, r.finished_at, r.duration_min,
+             t.description AS trip_name, t.distance_miles AS trip_miles
+      FROM maeving_rides r
+      JOIN maeving_trips t ON t.id = r.trip_id
+      WHERE r.finished_at IS NOT NULL
+      ORDER BY r.started_at ASC
+    `).all();
+    return reply.send(rides);
+  });
+
+  fastify.post('/api/maeving/rides/start', async (req, reply) => {
+    const { trip_id } = req.body ?? {};
+    if (!trip_id) return reply.code(400).send({ error: 'trip_id required' });
+
+    const trip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(trip_id);
+    if (!trip) return reply.code(404).send({ error: 'trip not found' });
+
+    const existing = db.prepare(
+      'SELECT id FROM maeving_rides WHERE finished_at IS NULL LIMIT 1',
+    ).get();
+    if (existing) return reply.code(409).send({ error: 'A ride is already in progress' });
+
+    const startedAt = new Date().toISOString();
+    const result = db.prepare(`
+      INSERT INTO maeving_rides (trip_id, started_at, finished_at, duration_min)
+      VALUES (?, ?, NULL, NULL)
+    `).run(trip_id, startedAt);
+
+    return reply.code(201).send({
+      id: result.lastInsertRowid,
+      trip_id: trip.id,
+      trip_name: trip.description,
+      trip_miles: trip.distance_miles,
+      started_at: startedAt,
+      finished_at: null,
+      duration_min: null,
+    });
+  });
+
+  fastify.post('/api/maeving/rides/:id/finish', async (req, reply) => {
+    const ride = db.prepare('SELECT * FROM maeving_rides WHERE id = ?').get(req.params.id);
+    if (!ride) return reply.code(400).send({ error: 'ride not found' });
+    if (ride.finished_at != null) return reply.code(400).send({ error: 'ride already finished' });
+
+    const finishedAt = new Date().toISOString();
+    const durationMin = Math.round(
+      ((new Date(finishedAt) - new Date(ride.started_at)) / 60000) * 10,
+    ) / 10;
+
+    db.prepare(`
+      UPDATE maeving_rides SET finished_at = ?, duration_min = ? WHERE id = ?
+    `).run(finishedAt, durationMin, ride.id);
+
+    const trip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(ride.trip_id);
+
+    return reply.send({
+      id: ride.id,
+      trip_id: ride.trip_id,
+      trip_name: trip?.description ?? null,
+      trip_miles: trip?.distance_miles ?? null,
+      started_at: ride.started_at,
+      finished_at: finishedAt,
+      duration_min: durationMin,
+    });
+  });
+
+  fastify.delete('/api/maeving/rides/:id', async (req, reply) => {
+    const ride = db.prepare('SELECT id FROM maeving_rides WHERE id = ?').get(req.params.id);
+    if (!ride) return reply.code(404).send({ error: 'ride not found' });
+    db.prepare('DELETE FROM maeving_rides WHERE id = ?').run(req.params.id);
+    return reply.send({ deleted: true });
   });
 
   // ── Rebel cost ────────────────────────────────────────────────────────────────

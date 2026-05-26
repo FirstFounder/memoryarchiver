@@ -16,7 +16,8 @@ import { TeslaSettingsModal } from './components/tesla/TeslaSettingsModal.jsx';
 import { AudioTab } from './components/audio/AudioTab.jsx';
 import { ReceiptsPanel } from './components/receipts/ReceiptsPanel.jsx';
 import { MaevingPanel } from './components/maeving/MaevingPanel.jsx';
-import { TripsCard } from './components/maeving/TripsCard.jsx';
+import { RideCard } from './components/maeving/RideCard.jsx';
+import { LegsCard } from './components/maeving/LegsCard.jsx';
 import { getAppConfig } from './api/appConfig.js';
 import { useAppConfigStore } from './store/appConfigStore.js';
 
@@ -197,6 +198,16 @@ export default function App() {
   const [activeTab, setActiveTab] = useState('queues');
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(true);
+
+  // Deep link: activate Maeving tab on initial load when path is /maeving
+  const didPathInit = useRef(false);
+  useEffect(() => {
+    if (!configLoaded || didPathInit.current) return;
+    didPathInit.current = true;
+    if (window.location.pathname === '/maeving' && isMaeving) {
+      setActiveTab('maeving');
+    }
+  }, [configLoaded, isMaeving]);
 
   useEffect(() => {
     if (!tabs.some(tab => tab.id === activeTab)) {
@@ -438,8 +449,9 @@ export default function App() {
 
           {isMaeving && activeTab === 'maeving' && (
             <>
+              <RideCard />
               <MaevingPanel />
-              <TripsCard />
+              <LegsCard />
             </>
           )}
 
