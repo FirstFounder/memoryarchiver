@@ -103,7 +103,7 @@ export function RideCard() {
 
   if (uiState === 'loading') return null;
 
-  // State C — card with Ending SOC roller + Finish button
+  // State C — header, Finish button, then Ending SOC roller
   if (uiState === 'active' && activeRide) {
     return (
       <div className="mx-auto w-full max-w-5xl">
@@ -117,56 +117,67 @@ export function RideCard() {
             <p className="text-xl font-bold text-slate-100">{activeRide.trip_name}</p>
             <p className="text-sm text-slate-400 mt-1">{elapsed} elapsed</p>
           </div>
-          <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
           <button
             type="button"
             onClick={handleFinish}
             disabled={finishing}
-            className="mt-4 flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
+            className="flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
           >
             <span className="text-xl font-bold">
               {finishing ? 'Finishing…' : 'Finish Ride'}
             </span>
           </button>
+          <div className="mt-4">
+            <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
+          </div>
         </section>
       </div>
     );
   }
 
   // State B — leg selector with Starting SOC roller
+  const selectedLeg = legs.find(l => String(l.id) === String(selectedLegId));
+  const legLabel = selectedLeg
+    ? `${selectedLeg.description} (${selectedLeg.distance_miles} mi)`
+    : 'Select Leg';
   if (uiState === 'selecting') {
     return (
       <div className="mx-auto w-full max-w-5xl">
         <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
-          <div className="flex flex-wrap items-center gap-3">
-            <select
-              className="flex-1 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200 focus:outline-none"
-              value={selectedLegId}
-              onChange={e => setSelectedLegId(e.target.value)}
-            >
-              <option value="">— select leg —</option>
-              {legs.map(leg => (
-                <option key={leg.id} value={leg.id}>
-                  {leg.description} ({leg.distance_miles} mi)
-                </option>
-              ))}
-            </select>
-            <button
-              type="button"
-              onClick={handleGo}
-              disabled={!selectedLegId || starting}
-              className="rounded-xl bg-[color:var(--color-accent)] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60"
-            >
-              {starting ? 'Starting…' : 'Go ▶'}
-            </button>
+          {/* Row 1: Leg select (3/4) + Cancel (1/4) */}
+          <div className="flex">
+            <div className="relative w-3/4">
+              <select
+                className="w-full min-h-[56px] appearance-none rounded-l-xl rounded-r-none border border-r-0 border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] pl-4 pr-10 text-base text-slate-200 focus:outline-none"
+                value={selectedLegId}
+                onChange={e => setSelectedLegId(e.target.value)}
+              >
+                <option value="">Select Leg</option>
+                {legs.map(leg => (
+                  <option key={leg.id} value={leg.id}>
+                    {leg.description} ({leg.distance_miles} mi)
+                  </option>
+                ))}
+              </select>
+              <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">▾</span>
+            </div>
             <button
               type="button"
               onClick={() => { setUiState('idle'); setSelectedLegId(''); setError(''); }}
-              className="rounded-xl border border-[color:var(--color-border)] px-3 py-2 text-sm text-slate-400 transition-colors hover:border-slate-500"
+              className="w-1/4 min-h-[56px] rounded-l-none rounded-r-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] text-sm text-slate-400 transition-colors hover:border-slate-500"
             >
-              ✕
+              Cancel
             </button>
           </div>
+          {/* Row 2: Full-width Go button */}
+          <button
+            type="button"
+            onClick={handleGo}
+            disabled={!selectedLegId || starting}
+            className="mt-2 flex min-h-[72px] w-full items-center justify-center rounded-[2rem] bg-green-700 px-6 py-5 text-xl font-bold text-white transition-colors hover:bg-green-600 disabled:opacity-60"
+          >
+            {starting ? 'Starting…' : 'Go ▶'}
+          </button>
           <div className="mt-4">
             <SOCRoller min={0} max={100} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
           </div>
