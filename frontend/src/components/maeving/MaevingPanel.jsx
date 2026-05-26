@@ -19,17 +19,20 @@ import { SOCRoller } from '../tesla/SOCRoller.jsx';
 
 const TOTAL_WH = 2880; // fallback when config not yet loaded
 
-function formatEta(session, summary, liveApower) {
-  const whDelivered = summary?.wh_delivered ?? 0;
-  const avgWatts = summary?.avg_watts ?? (liveApower > 10 ? liveApower : 250);
-  const socStart = session.soc_start_pct ?? 0;
+function formatEta(session, summary, liveApower, estimatedSoc, effectiveCapacity) {
   const socTarget = session.soc_target_pct ?? 100;
-  const estimatedSoc = Math.min(socTarget, socStart + (whDelivered / TOTAL_WH) * 100);
-  const remainingWh = Math.max(0, ((socTarget - estimatedSoc) / 100) * TOTAL_WH);
-  if (avgWatts < 10) return null;
-  const etaMin = (remainingWh / avgWatts) * 60;
+  const remainingWh = Math.max(0, ((socTarget - estimatedSoc) / 100) * effectiveCapacity);
+  const watts =
+    liveApower > 10
+      ? liveApower
+      : (summary?.avg_watts ?? 0) > 10
+        ? summary.avg_watts
+        : 250;
+  if (watts < 10) return null;
+  const etaMin = (remainingWh / watts) * 60;
   const h = Math.floor(etaMin / 60);
   const m = Math.round(etaMin % 60);
+  if (h === 0 && m === 0) return `~0 min remaining`;
   if (h === 0) return `~${m} min remaining`;
   if (m === 0) return `~${h} hr remaining`;
   return `~${h} hr ${m} min remaining`;
@@ -777,7 +780,13 @@ export function MaevingPanel() {
                 );
                 const fillPct = Math.max(0, estimatedSoc - socStartPct);
                 const unfilledPct = Math.max(0, socTargetPct - estimatedSoc);
-                const etaText = formatEta(activeSession, sessionDetails?.readings_summary, liveApower);
+                const etaText = formatEta(
+                  activeSession,
+                  sessionDetails?.readings_summary,
+                  liveApower,
+                  estimatedSoc,
+                  effectiveCapacity,
+                );
 
                 return (
                   <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
