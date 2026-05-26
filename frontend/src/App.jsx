@@ -150,6 +150,7 @@ export default function App() {
   const isMaeving  = configLoaded && maevingEnabled;
 
   const [maevingSavings, setMaevingSavings] = useState(null);
+  const [maevingWhPerMile, setMaevingWhPerMile] = useState(null);
   useEffect(() => {
     if (!isMaeving) return;
     let active = true;
@@ -158,7 +159,10 @@ export default function App() {
         const res = await fetch('/api/maeving/config');
         if (res.ok) {
           const data = await res.json();
-          if (active) setMaevingSavings(data.running_savings_dollars ?? null);
+          if (active) {
+            setMaevingSavings(data.running_savings_dollars ?? null);
+            setMaevingWhPerMile(data.avg_wh_per_mile ?? null);
+          }
         }
       } catch { /* silent */ }
     }
@@ -279,6 +283,11 @@ export default function App() {
         <h1 className="text-slate-100 font-semibold tracking-tight">Memory Archiver</h1>
         <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
           H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
+          {isMaeving && maevingWhPerMile != null && (
+            <span className="inline-flex items-center rounded bg-white px-1.5 py-0.5 text-base font-semibold" style={{ color: '#0047AB', fontSize: '1.2em' }}>
+              {Math.round(maevingWhPerMile)} Wh/mi
+            </span>
+          )}
           {isMaeving && maevingSavings != null && (
             <span className="inline-flex items-center rounded bg-white px-1.5 py-0.5 text-base font-semibold" style={{ color: '#0047AB', fontSize: '1.2em' }}>
               ${maevingSavings.toFixed(2)}

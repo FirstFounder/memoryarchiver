@@ -1,0 +1,12 @@
+ALTER TABLE maeving_sessions ADD COLUMN leg_1_wh_per_mile REAL;
+ALTER TABLE maeving_sessions ADD COLUMN leg_2_wh_per_mile REAL;
+ALTER TABLE maeving_sessions ADD COLUMN leg_3_wh_per_mile REAL;
+ALTER TABLE maeving_sessions ADD COLUMN leg_4_wh_per_mile REAL;
+ALTER TABLE maeving_sessions ADD COLUMN leg_1_start_soc_pct INTEGER;
+ALTER TABLE maeving_sessions ADD COLUMN leg_1_end_soc_pct   INTEGER;
+ALTER TABLE maeving_sessions ADD COLUMN leg_2_start_soc_pct INTEGER;
+ALTER TABLE maeving_sessions ADD COLUMN leg_2_end_soc_pct   INTEGER;
+ALTER TABLE maeving_sessions ADD COLUMN leg_3_start_soc_pct INTEGER;
+ALTER TABLE maeving_sessions ADD COLUMN leg_3_end_soc_pct   INTEGER;
+ALTER TABLE maeving_sessions ADD COLUMN leg_4_start_soc_pct INTEGER;
+ALTER TABLE maeving_sessions ADD COLUMN leg_4_end_soc_pct   INTEGER;

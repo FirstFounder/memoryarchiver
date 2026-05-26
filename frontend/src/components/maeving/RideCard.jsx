@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getActiveRide, getLegs, startRide, finishRide } from '../../api/maeving.js';
+import { getActiveRide, getLegs, getConfig, startRide, finishRide } from '../../api/maeving.js';
+import { SOCRoller } from '../tesla/SOCRoller.jsx';
 
 function getElapsed(startedAt) {
   const ms = Date.now() - new Date(startedAt).getTime();
@@ -19,6 +20,8 @@ export function RideCard() {
   const [starting, setStarting] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState('');
+  const [startSoc, setStartSoc] = useState(50);
+  const [endSoc, setEndSoc] = useState(50);
   const timerRef = useRef(null);
 
   // Manage the live elapsed timer
@@ -40,6 +43,7 @@ export function RideCard() {
       const ride = await getActiveRide();
       if (ride) {
         setActiveRide(ride);
+        setEndSoc(ride.start_soc_pct ?? 50);
         setUiState('active');
       } else {
         setActiveRide(null);
@@ -50,6 +54,9 @@ export function RideCard() {
 
   useEffect(() => {
     getLegs().then(setLegs).catch(() => {});
+    getConfig().then((cfg) => {
+      setStartSoc(cfg.prev_max_soc_pct ?? 50);
+    }).catch(() => {});
     syncRide();
     const poll = setInterval(syncRide, 30_000);
     return () => {
@@ -63,8 +70,9 @@ export function RideCard() {
     setStarting(true);
     setError('');
     try {
-      const ride = await startRide({ trip_id: Number(selectedLegId) });
+      const ride = await startRide({ trip_id: Number(selectedLegId), start_soc_pct: startSoc });
       setActiveRide(ride);
+      setEndSoc(startSoc);
       setUiState('active');
     } catch (err) {
       setError(err.message);
@@ -78,10 +86,14 @@ export function RideCard() {
     setFinishing(true);
     setError('');
     try {
-      await finishRide(activeRide.id);
+      await finishRide(activeRide.id, { end_soc_pct: endSoc });
       setActiveRide(null);
       setUiState('idle');
       setSelectedLegId('');
+      // Reload config so startSoc reflects the updated prev_max_soc_pct
+      getConfig().then((cfg) => {
+        setStartSoc(cfg.prev_max_soc_pct ?? 50);
+      }).catch(() => {});
     } catch (err) {
       setError(err.message);
     } finally {
@@ -91,7 +103,7 @@ export function RideCard() {
 
   if (uiState === 'loading') return null;
 
-  // State C — full-card red button
+  // State C — card with Ending SOC roller + Finish button
   if (uiState === 'active' && activeRide) {
     return (
       <div className="mx-auto w-full max-w-5xl">
@@ -100,24 +112,28 @@ export function RideCard() {
             {error}
           </div>
         )}
-        <button
-          type="button"
-          onClick={handleFinish}
-          disabled={finishing}
-          className="flex min-h-[80px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
-        >
-          <span className="text-xl font-bold">
-            {finishing ? 'Finishing…' : 'Finish Ride'}
-          </span>
-          <span className="mt-1 text-sm font-normal opacity-80">
-            {activeRide.trip_name} · {elapsed} elapsed
-          </span>
-        </button>
+        <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
+          <div className="mb-4 text-center">
+            <p className="text-xl font-bold text-slate-100">{activeRide.trip_name}</p>
+            <p className="text-sm text-slate-400 mt-1">{elapsed} elapsed</p>
+          </div>
+          <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
+          <button
+            type="button"
+            onClick={handleFinish}
+            disabled={finishing}
+            className="mt-4 flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
+          >
+            <span className="text-xl font-bold">
+              {finishing ? 'Finishing…' : 'Finish Ride'}
+            </span>
+          </button>
+        </section>
       </div>
     );
   }
 
-  // State B — leg selector (unchanged layout, standard dark card)
+  // State B — leg selector with Starting SOC roller
   if (uiState === 'selecting') {
     return (
       <div className="mx-auto w-full max-w-5xl">
@@ -150,6 +166,9 @@ export function RideCard() {
             >
               ✕
             </button>
+          </div>
+          <div className="mt-4">
+            <SOCRoller min={0} max={100} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
           </div>
           {error && (
             <div className="mt-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">

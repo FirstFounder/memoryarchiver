@@ -192,6 +192,7 @@ export function MaevingPanel() {
       setSelectedId((prev) => prev ?? activeDeviceId ?? devs[0]?.id ?? null);
       setTrips(tripList);
       setConfig(cfg);
+      setSocStart(cfg.prev_max_soc_pct ?? 50);
       setPendingCalibration(cfg.pendingSession ?? null);
       const map = {};
       for (const s of all.filter(
@@ -357,6 +358,7 @@ export function MaevingPanel() {
       if (slotIdx >= 4) break;
       slotIdx++;
       legData[`leg_${slotIdx}_trip_id`] = ride.trip_id;
+      legData[`leg_${slotIdx}_ride_id`] = ride.id;
       if (ride.duration_min != null) {
         legData[`leg_${slotIdx}_duration_min`] = Math.round(ride.duration_min);
       }
@@ -919,6 +921,18 @@ export function MaevingPanel() {
                         <span className="text-slate-500 text-xs">
                           {formatTimeRange(ride.started_at, ride.finished_at)}
                         </span>
+                        {ride.start_soc_pct != null && ride.end_soc_pct != null && (
+                          <span className="text-slate-500 text-xs">
+                            {ride.start_soc_pct}%→{ride.end_soc_pct}%
+                          </span>
+                        )}
+                        {ride.wh_per_mile != null && (
+                          <span className="text-slate-500 text-xs">
+                            {ride.wh_per_mile < 100
+                              ? ride.wh_per_mile.toFixed(1)
+                              : Math.round(ride.wh_per_mile)} Wh/mi
+                          </span>
+                        )}
                       </label>
                     );
                   })}
@@ -1291,6 +1305,7 @@ export function MaevingPanel() {
                 <span>Trip</span>
                 <span>Date</span>
                 <span>Trip Time</span>
+                <span>Wh/mi</span>
                 <span>Cost</span>
               </div>
               {recentTripLegs.map((row, i) => {
@@ -1301,6 +1316,9 @@ export function MaevingPanel() {
                 const dateCellColor = isLF ? 'text-orange-300' : (isMultiLeg ? 'text-yellow-400' : 'text-slate-500');
                 const timeCellColor = isLF ? 'text-orange-300' : (isMultiLeg ? 'text-yellow-400' : 'text-slate-500');
                 const tripName = trip?.description ?? `Trip #${row.tripId}`;
+                const legWhPerMile = session[`leg_${legNum}_wh_per_mile`] ?? null;
+                const legStartSoc = session[`leg_${legNum}_start_soc_pct`] ?? null;
+                const legEndSoc = session[`leg_${legNum}_end_soc_pct`] ?? null;
                 return (
                   <div
                     key={`${session.id}-${legNum}`}
@@ -1316,6 +1334,18 @@ export function MaevingPanel() {
                     </span>
                     <span className={dateCellColor}>{formatDate(session.started_at)}</span>
                     <span className={timeCellColor}>{formatMinutes(durationMin)}</span>
+                    <span className="text-slate-500 text-xs">
+                      {legWhPerMile != null ? (
+                        <>
+                          {legStartSoc != null && legEndSoc != null && (
+                            <span>{legStartSoc}%→{legEndSoc}% · </span>
+                          )}
+                          {legWhPerMile < 100
+                            ? legWhPerMile.toFixed(1)
+                            : Math.round(legWhPerMile)} Wh/mi
+                        </>
+                      ) : null}
+                    </span>
                     {isLastLeg ? (
                       device?.cost_free ? (
                         session.lf_equivalent_cost_dollars != null ? (

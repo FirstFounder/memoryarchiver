@@ -48,8 +48,12 @@ export async function startRide(data) {
   });
 }
 
-export async function finishRide(id) {
-  return apiFetch(`/api/maeving/rides/${id}/finish`, { method: 'POST' });
+export async function finishRide(id, data = {}) {
+  return apiFetch(`/api/maeving/rides/${id}/finish`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
 }
 
 export async function deleteRide(id) {

@@ -10,6 +10,7 @@ import {
 } from '../../lib/maevingScheduler.js';
 import {
   getConfig,
+  getEffectiveCapacity,
   hasPendingCalibration,
   recordCalibrationEntry,
   analyzeTaper,
@@ -130,6 +131,7 @@ export default async function maevingRoutes(fastify) {
   fastify.get('/api/maeving/rides/active', async (_req, reply) => {
     const ride = db.prepare(`
       SELECT r.id, r.trip_id, r.started_at, r.finished_at, r.duration_min,
+             r.start_soc_pct, r.end_soc_pct, r.wh_per_mile,
              t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r
       JOIN maeving_trips t ON t.id = r.trip_id
@@ -142,6 +144,7 @@ export default async function maevingRoutes(fastify) {
   fastify.get('/api/maeving/rides/pending', async (_req, reply) => {
     const rides = db.prepare(`
       SELECT r.id, r.trip_id, r.started_at, r.finished_at, r.duration_min,
+             r.start_soc_pct, r.end_soc_pct, r.wh_per_mile,
              t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r
       JOIN maeving_trips t ON t.id = r.trip_id
@@ -152,7 +155,7 @@ export default async function maevingRoutes(fastify) {
   });
 
   fastify.post('/api/maeving/rides/start', async (req, reply) => {
-    const { trip_id } = req.body ?? {};
+    const { trip_id, start_soc_pct } = req.body ?? {};
     if (!trip_id) return reply.code(400).send({ error: 'trip_id required' });
 
     const trip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(trip_id);
@@ -165,9 +168,9 @@ export default async function maevingRoutes(fastify) {
 
     const startedAt = new Date().toISOString();
     const result = db.prepare(`
-      INSERT INTO maeving_rides (trip_id, started_at, finished_at, duration_min)
-      VALUES (?, ?, NULL, NULL)
-    `).run(trip_id, startedAt);
+      INSERT INTO maeving_rides (trip_id, started_at, finished_at, duration_min, start_soc_pct)
+      VALUES (?, ?, NULL, NULL, ?)
+    `).run(trip_id, startedAt, start_soc_pct ?? null);
 
     return reply.code(201).send({
       id: result.lastInsertRowid,
@@ -177,6 +180,9 @@ export default async function maevingRoutes(fastify) {
       started_at: startedAt,
       finished_at: null,
       duration_min: null,
+      start_soc_pct: start_soc_pct ?? null,
+      end_soc_pct: null,
+      wh_per_mile: null,
     });
   });
 
@@ -185,16 +191,34 @@ export default async function maevingRoutes(fastify) {
     if (!ride) return reply.code(400).send({ error: 'ride not found' });
     if (ride.finished_at != null) return reply.code(400).send({ error: 'ride already finished' });
 
+    const { end_soc_pct } = req.body ?? {};
     const finishedAt = new Date().toISOString();
     const durationMin = Math.round(
       ((new Date(finishedAt) - new Date(ride.started_at)) / 60000) * 10,
     ) / 10;
 
-    db.prepare(`
-      UPDATE maeving_rides SET finished_at = ?, duration_min = ? WHERE id = ?
-    `).run(finishedAt, durationMin, ride.id);
-
     const trip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(ride.trip_id);
+
+    let whPerMile = null;
+    if (
+      ride.start_soc_pct != null &&
+      end_soc_pct != null &&
+      trip?.distance_miles > 0
+    ) {
+      const effectiveCapacityWh = getEffectiveCapacity();
+      if (effectiveCapacityWh > 0) {
+        const whUsed = ((ride.start_soc_pct - end_soc_pct) / 100) * effectiveCapacityWh;
+        whPerMile = whUsed / trip.distance_miles;
+      }
+    }
+
+    db.prepare(`
+      UPDATE maeving_rides SET finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ? WHERE id = ?
+    `).run(finishedAt, durationMin, end_soc_pct ?? null, whPerMile, ride.id);
+
+    if (end_soc_pct != null) {
+      db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(end_soc_pct);
+    }
 
     return reply.send({
       id: ride.id,
@@ -204,6 +228,9 @@ export default async function maevingRoutes(fastify) {
       started_at: ride.started_at,
       finished_at: finishedAt,
       duration_min: durationMin,
+      start_soc_pct: ride.start_soc_pct ?? null,
+      end_soc_pct: end_soc_pct ?? null,
+      wh_per_mile: whPerMile,
     });
   });
 
@@ -270,6 +297,10 @@ export default async function maevingRoutes(fastify) {
       leg_4_rebel_cost,
       rebel_cost_total,
       rebel_cost_stale,
+      leg_1_ride_id,
+      leg_2_ride_id,
+      leg_3_ride_id,
+      leg_4_ride_id,
     } = req.body ?? {};
     if (!device_id) return reply.code(400).send({ error: 'device_id required' });
 
@@ -282,6 +313,33 @@ export default async function maevingRoutes(fastify) {
     const status = mode === 'scheduled' ? 'scheduled' : 'active';
     const now = started_at ?? new Date().toISOString();
 
+    // Fetch SOC/wh_per_mile from ride rows for any leg that came from a prestaged ride
+    const rideIds = [leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id];
+    const rideDataByLeg = rideIds.map((rideId) => {
+      if (!rideId) return null;
+      return db.prepare('SELECT start_soc_pct, end_soc_pct, wh_per_mile FROM maeving_rides WHERE id = ?').get(rideId) ?? null;
+    });
+
+    // Collect new wh_per_mile values from these rides
+    const newWhPerMileValues = rideDataByLeg
+      .filter((r) => r?.wh_per_mile != null)
+      .map((r) => r.wh_per_mile);
+
+    // Recompute global avg_wh_per_mile from all historical sessions + new rides
+    const historicalRows = db.prepare(`
+      SELECT leg_1_wh_per_mile, leg_2_wh_per_mile, leg_3_wh_per_mile, leg_4_wh_per_mile
+      FROM maeving_sessions
+    `).all();
+    const allWhValues = [...newWhPerMileValues];
+    for (const row of historicalRows) {
+      for (const col of ['leg_1_wh_per_mile', 'leg_2_wh_per_mile', 'leg_3_wh_per_mile', 'leg_4_wh_per_mile']) {
+        if (row[col] != null) allWhValues.push(row[col]);
+      }
+    }
+    const avgWhPerMile = allWhValues.length > 0
+      ? allWhValues.reduce((s, v) => s + v, 0) / allWhValues.length
+      : null;
+
     const result = db.prepare(`
       INSERT INTO maeving_sessions
         (device_id, started_at, soc_start_pct, soc_target_pct, status,
@@ -291,8 +349,13 @@ export default async function maevingRoutes(fastify) {
          leg_3_trip_id, leg_3_duration_min,
          leg_4_trip_id, leg_4_duration_min,
          leg_1_rebel_cost, leg_2_rebel_cost, leg_3_rebel_cost, leg_4_rebel_cost,
-         rebel_cost_total, rebel_cost_stale)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         rebel_cost_total, rebel_cost_stale,
+         leg_1_wh_per_mile, leg_2_wh_per_mile, leg_3_wh_per_mile, leg_4_wh_per_mile,
+         leg_1_start_soc_pct, leg_1_end_soc_pct,
+         leg_2_start_soc_pct, leg_2_end_soc_pct,
+         leg_3_start_soc_pct, leg_3_end_soc_pct,
+         leg_4_start_soc_pct, leg_4_end_soc_pct)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       device_id,
       now,
@@ -317,7 +380,23 @@ export default async function maevingRoutes(fastify) {
       leg_4_rebel_cost ?? null,
       rebel_cost_total ?? null,
       rebel_cost_stale ?? 0,
+      rideDataByLeg[0]?.wh_per_mile ?? null,
+      rideDataByLeg[1]?.wh_per_mile ?? null,
+      rideDataByLeg[2]?.wh_per_mile ?? null,
+      rideDataByLeg[3]?.wh_per_mile ?? null,
+      rideDataByLeg[0]?.start_soc_pct ?? null,
+      rideDataByLeg[0]?.end_soc_pct ?? null,
+      rideDataByLeg[1]?.start_soc_pct ?? null,
+      rideDataByLeg[1]?.end_soc_pct ?? null,
+      rideDataByLeg[2]?.start_soc_pct ?? null,
+      rideDataByLeg[2]?.end_soc_pct ?? null,
+      rideDataByLeg[3]?.start_soc_pct ?? null,
+      rideDataByLeg[3]?.end_soc_pct ?? null,
     );
+
+    if (avgWhPerMile != null) {
+      db.prepare('UPDATE maeving_config SET avg_wh_per_mile = ? WHERE id = 1').run(avgWhPerMile);
+    }
 
     invalidateActiveSessionCache(device_id);
 
