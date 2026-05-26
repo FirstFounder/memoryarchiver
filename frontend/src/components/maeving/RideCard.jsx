@@ -91,50 +91,37 @@ export function RideCard() {
 
   if (uiState === 'loading') return null;
 
+  // State C — full-card red button
   if (uiState === 'active' && activeRide) {
     return (
       <div className="mx-auto w-full max-w-5xl">
-        <section className="rounded-[2rem] border border-emerald-700/60 bg-emerald-950/20 p-5 sm:p-6">
-          <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-emerald-400">
-            Ride in Progress
-          </p>
-          <div className="mb-4 rounded-2xl border border-emerald-800/40 bg-emerald-900/10 px-4 py-3">
-            <p className="text-sm font-semibold text-slate-100">{activeRide.trip_name}</p>
-            <p className="mt-0.5 text-sm text-emerald-300">{elapsed} elapsed</p>
+        {error && (
+          <div className="mb-2 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+            {error}
           </div>
-          {error && (
-            <div className="mb-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
-              {error}
-            </div>
-          )}
-          <button
-            type="button"
-            onClick={handleFinish}
-            disabled={finishing}
-            className="min-h-16 w-full rounded-2xl border border-red-700/60 bg-red-900/30 px-6 text-lg font-semibold text-red-300 transition-colors hover:bg-red-900/60 disabled:opacity-60"
-          >
-            {finishing ? 'Finishing…' : 'Finish ■'}
-          </button>
-        </section>
+        )}
+        <button
+          type="button"
+          onClick={handleFinish}
+          disabled={finishing}
+          className="flex min-h-[80px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
+        >
+          <span className="text-xl font-bold">
+            {finishing ? 'Finishing…' : 'Finish Ride'}
+          </span>
+          <span className="mt-1 text-sm font-normal opacity-80">
+            {activeRide.trip_name} · {elapsed} elapsed
+          </span>
+        </button>
       </div>
     );
   }
 
-  return (
-    <div className="mx-auto w-full max-w-5xl">
-      <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
-        <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
-          New Ride
-        </p>
-        {uiState === 'idle' ? (
-          <button
-            type="button"
-            onClick={() => { setUiState('selecting'); setError(''); }}
-            className="min-h-16 w-full rounded-2xl border border-[color:var(--color-border)] px-6 text-lg font-semibold text-slate-300 transition-colors hover:border-slate-500"
-          >
-            New Ride ▶
-          </button>
-        ) : (
+  // State B — leg selector (unchanged layout, standard dark card)
+  if (uiState === 'selecting') {
+    return (
+      <div className="mx-auto w-full max-w-5xl">
+        <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
           <div className="flex flex-wrap items-center gap-3">
             <select
               className="flex-1 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200 focus:outline-none"
@@ -164,13 +151,26 @@ export function RideCard() {
               ✕
             </button>
           </div>
-        )}
-        {error && (
-          <div className="mt-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
-            {error}
-          </div>
-        )}
-      </section>
+          {error && (
+            <div className="mt-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
+              {error}
+            </div>
+          )}
+        </section>
+      </div>
+    );
+  }
+
+  // State A — full-card green button (idle)
+  return (
+    <div className="mx-auto w-full max-w-5xl">
+      <button
+        type="button"
+        onClick={() => { setUiState('selecting'); setError(''); }}
+        className="flex min-h-[80px] w-full items-center justify-center rounded-[2rem] bg-green-700 px-6 py-5 text-xl font-bold text-white transition-colors hover:bg-green-600"
+      >
+        New Ride
+      </button>
     </div>
   );
 }
