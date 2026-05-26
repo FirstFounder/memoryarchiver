@@ -137,7 +137,7 @@ function computeLocalTripStats(legs, trips, config, socStart) {
 
 function getSessionRowClass(session, device) {
   if (device?.cost_free) return 'bg-orange-950/30 border-orange-800/40';
-  const legCount = [1, 2, 3, 4].filter((n) => session[`leg_${n}_trip_id`] != null).length;
+  const legCount = [1, 2, 3, 4, 5, 6, 7, 8].filter((n) => session[`leg_${n}_trip_id`] != null).length;
   if (legCount === 1) return 'bg-green-950/30 border-green-800/40';
   if (legCount > 1) return 'bg-amber-950/30 border-amber-800/40';
   return 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]';
@@ -305,7 +305,7 @@ export function MaevingPanel() {
   const checkedCount = checkedRideIds.size;
   const manualLegsWithTrip = legs.filter((l) => l.trip_id !== '').length;
   const totalLegCount = checkedCount + manualLegsWithTrip;
-  const isOverLimit = totalLegCount > 4;
+  const isOverLimit = totalLegCount > 8;
 
   function resetPlugInForm() {
     setChargeMode('now');
@@ -325,7 +325,7 @@ export function MaevingPanel() {
   }
 
   function addLeg() {
-    if (checkedCount + legs.length < 4) setLegs((prev) => [...prev, { trip_id: '', duration_min: '' }]);
+    if (checkedCount + legs.length < 8) setLegs((prev) => [...prev, { trip_id: '', duration_min: '' }]);
   }
 
   function removeLeg(index) {
@@ -355,7 +355,7 @@ export function MaevingPanel() {
 
     // Prestaged rides fill first slots
     for (const ride of checkedRides) {
-      if (slotIdx >= 4) break;
+      if (slotIdx >= 8) break;
       slotIdx++;
       legData[`leg_${slotIdx}_trip_id`] = ride.trip_id;
       legData[`leg_${slotIdx}_ride_id`] = ride.id;
@@ -366,7 +366,7 @@ export function MaevingPanel() {
 
     // Manual legs fill remaining slots
     legs.forEach((leg, i) => {
-      if (!leg.trip_id || slotIdx >= 4) return;
+      if (!leg.trip_id || slotIdx >= 8) return;
       slotIdx++;
       legData[`leg_${slotIdx}_trip_id`] = Number(leg.trip_id);
       if (leg.duration_min) legData[`leg_${slotIdx}_duration_min`] = Number(leg.duration_min);
@@ -942,7 +942,7 @@ export function MaevingPanel() {
               {/* Over-limit warning */}
               {isOverLimit && (
                 <div className="rounded-2xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
-                  {totalLegCount} legs selected — maximum is 4. Uncheck prestaged rides or remove manual legs.
+                  {totalLegCount} legs selected — maximum is 8. Uncheck prestaged rides or remove manual legs.
                 </div>
               )}
 
@@ -1006,7 +1006,7 @@ export function MaevingPanel() {
                     )}
                   </div>
                 ))}
-                {(checkedCount + legs.length) < 4 && (
+                {(checkedCount + legs.length) < 8 && (
                   <button
                     type="button"
                     onClick={addLeg}
@@ -1274,7 +1274,7 @@ export function MaevingPanel() {
         const tripLegRows = [];
         for (const session of recentSessions) {
           if (session.leg_1_trip_id == null) continue;
-          const legNums = [1, 2, 3, 4].filter((n) => session[`leg_${n}_trip_id`] != null);
+          const legNums = [1, 2, 3, 4, 5, 6, 7, 8].filter((n) => session[`leg_${n}_trip_id`] != null);
           const isMultiLeg = legNums.length > 1;
           for (const n of legNums) {
             const tripId = session[`leg_${n}_trip_id`];
