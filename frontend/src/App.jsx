@@ -217,6 +217,8 @@ export default function App() {
 
   useEffect(() => {
     if (configLoaded && isMobile && isCoop) {
+      // Don't override a /maeving deep link with the mobile coop default
+      if (window.location.pathname === '/maeving') return;
       setActiveTab('coop');
     }
   }, [configLoaded, isMobile, isCoop]);
