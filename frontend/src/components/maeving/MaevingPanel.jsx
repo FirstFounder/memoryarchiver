@@ -1343,10 +1343,12 @@ export function MaevingPanel() {
                         className={
                           (session.hourly_savings_dollars ?? 0) > 0
                             ? 'text-emerald-400'
-                            : 'text-amber-400'
+                            : 'text-red-400'
                         }
                       >
-                        Saved: ${(session.hourly_savings_dollars ?? 0).toFixed(2)}
+                        {(session.hourly_savings_dollars ?? 0) > 0
+                          ? `Saved: $${(session.hourly_savings_dollars).toFixed(2)}`
+                          : `Penalized: $${Math.abs(session.hourly_savings_dollars ?? 0).toFixed(2)}`}
                       </span>
                     </span>
                   ) : session.actual_cost_dollars != null ? (
@@ -1744,10 +1746,12 @@ export function MaevingPanel() {
                             className={
                               (session.hourly_savings_dollars ?? 0) > 0
                                 ? 'text-emerald-400'
-                                : 'text-amber-400'
+                                : 'text-red-400'
                             }
                           >
-                            Saved: ${(session.hourly_savings_dollars ?? 0).toFixed(2)}
+                            {(session.hourly_savings_dollars ?? 0) > 0
+                              ? `Saved: $${(session.hourly_savings_dollars).toFixed(2)}`
+                              : `Penalized: $${Math.abs(session.hourly_savings_dollars ?? 0).toFixed(2)}`}
                           </span>
                         </span>
                       ) : session.actual_cost_dollars != null ? (
