@@ -224,6 +224,7 @@ export function MaevingPanel() {
         all.filter((s) => s.status !== 'active' && s.status !== 'scheduled').slice(0, 10),
       );
       setRecentPendingRides(pendingList);
+      setPendingRides(pendingList);
     } catch {
       // silent — stale data is fine
     }
