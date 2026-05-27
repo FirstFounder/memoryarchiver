@@ -145,15 +145,6 @@ function getSessionRowClass(session, device) {
   return 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]';
 }
 
-function isoToDatetimeLocal(iso) {
-  if (!iso) return '';
-  return iso.slice(0, 16);
-}
-
-function datetimeLocalToIso(local) {
-  if (!local) return '';
-  return new Date(local).toISOString();
-}
 
 export function MaevingPanel() {
   const [devices, setDevices] = useState([]);
@@ -550,8 +541,6 @@ export function MaevingPanel() {
     setEditRideId(ride.id);
     setEditRideForm({
       end_soc_pct: ride.end_soc_pct ?? '',
-      started_at: ride.started_at,
-      finished_at: ride.finished_at,
       notes: ride.notes ?? '',
     });
     setRideEditError('');
@@ -562,8 +551,6 @@ export function MaevingPanel() {
     setRideEditError('');
     const payload = {};
     if (editRideForm.end_soc_pct !== '') payload.end_soc_pct = Number(editRideForm.end_soc_pct);
-    if (editRideForm.started_at) payload.started_at = editRideForm.started_at;
-    if (editRideForm.finished_at) payload.finished_at = editRideForm.finished_at;
     if (editRideForm.notes !== undefined) payload.notes = editRideForm.notes;
     try {
       await updateRide(id, payload);
@@ -601,8 +588,8 @@ export function MaevingPanel() {
       const ride = await startRide({ trip_id: Number(trip_id), start_soc_pct: Number(start_soc_pct) });
       await finishRide(ride.id, { end_soc_pct: Number(end_soc_pct) });
       await updateRide(ride.id, {
-        started_at: datetimeLocalToIso(started_at),
-        finished_at: datetimeLocalToIso(finished_at),
+        started_at: new Date(started_at).toISOString(),
+        finished_at: new Date(finished_at).toISOString(),
         notes: notes || null,
       });
       setAddingRide(false);
@@ -1551,6 +1538,9 @@ export function MaevingPanel() {
                 if (isEditing) {
                   return (
                     <div key={ride.id} className="rounded-2xl border border-amber-700/50 bg-amber-950/30 px-4 py-3">
+                      <p className="mb-2 text-xs text-slate-500">
+                        {formatTimeRange(ride.started_at, ride.finished_at)} · {formatMinutes(ride.duration_min)}
+                      </p>
                       <div className="flex flex-wrap gap-2 items-end">
                         <label className="flex flex-col text-xs text-slate-400 gap-1">
                           End SOC %
@@ -1559,24 +1549,6 @@ export function MaevingPanel() {
                             className="w-20 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
                             value={editRideForm.end_soc_pct}
                             onChange={e => setEditRideForm(f => ({ ...f, end_soc_pct: e.target.value }))}
-                          />
-                        </label>
-                        <label className="flex flex-col text-xs text-slate-400 gap-1">
-                          Start
-                          <input
-                            type="datetime-local"
-                            className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
-                            value={isoToDatetimeLocal(editRideForm.started_at)}
-                            onChange={e => setEditRideForm(f => ({ ...f, started_at: datetimeLocalToIso(e.target.value) }))}
-                          />
-                        </label>
-                        <label className="flex flex-col text-xs text-slate-400 gap-1">
-                          End
-                          <input
-                            type="datetime-local"
-                            className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
-                            value={isoToDatetimeLocal(editRideForm.finished_at)}
-                            onChange={e => setEditRideForm(f => ({ ...f, finished_at: datetimeLocalToIso(e.target.value) }))}
                           />
                         </label>
                         <button
