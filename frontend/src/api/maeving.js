@@ -60,6 +60,14 @@ export async function deleteRide(id) {
   return apiFetch(`/api/maeving/rides/${id}`, { method: 'DELETE' });
 }
 
+export async function updateRide(id, data) {
+  return apiFetch(`/api/maeving/rides/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  });
+}
+
 export async function startSession(data) {
   return apiFetch('/api/maeving/sessions', {
     method: 'POST',

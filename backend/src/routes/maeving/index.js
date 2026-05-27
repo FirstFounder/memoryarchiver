@@ -144,7 +144,7 @@ export default async function maevingRoutes(fastify) {
   fastify.get('/api/maeving/rides/pending', async (_req, reply) => {
     const rides = db.prepare(`
       SELECT r.id, r.trip_id, r.started_at, r.finished_at, r.duration_min,
-             r.start_soc_pct, r.end_soc_pct, r.wh_per_mile,
+             r.start_soc_pct, r.end_soc_pct, r.wh_per_mile, r.notes,
              t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r
       JOIN maeving_trips t ON t.id = r.trip_id
@@ -239,6 +239,54 @@ export default async function maevingRoutes(fastify) {
     if (!ride) return reply.code(404).send({ error: 'ride not found' });
     db.prepare('DELETE FROM maeving_rides WHERE id = ?').run(req.params.id);
     return reply.send({ deleted: true });
+  });
+
+  fastify.patch('/api/maeving/rides/:id', async (req, reply) => {
+    const ride = db.prepare('SELECT * FROM maeving_rides WHERE id = ?').get(req.params.id);
+    if (!ride) return reply.code(404).send({ error: 'ride not found' });
+    if (ride.finished_at == null) return reply.code(400).send({ error: 'cannot edit an in-progress ride' });
+    const { end_soc_pct, started_at, finished_at, notes } = req.body ?? {};
+    const newStartedAt = started_at ?? ride.started_at;
+    const newFinishedAt = finished_at ?? ride.finished_at;
+    const durationMin = Math.round(
+      ((new Date(newFinishedAt) - new Date(newStartedAt)) / 60000) * 10,
+    ) / 10;
+    const newEndSoc = end_soc_pct !== undefined ? end_soc_pct : ride.end_soc_pct;
+    let whPerMile = ride.wh_per_mile;
+    if (end_soc_pct !== undefined && ride.start_soc_pct != null && newEndSoc != null) {
+      const trip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(ride.trip_id);
+      if (trip?.distance_miles > 0) {
+        const effectiveCapacityWh = db
+          .prepare('SELECT effective_capacity_wh FROM maeving_config WHERE id = 1')
+          .get()?.effective_capacity_wh ?? 2880;
+        const whUsed = ((ride.start_soc_pct - newEndSoc) / 100) * effectiveCapacityWh;
+        whPerMile = whUsed / trip.distance_miles;
+      }
+    }
+    if (started_at || finished_at) {
+      const overlap = db.prepare(`
+        SELECT id FROM maeving_rides
+        WHERE id != ?
+          AND finished_at IS NOT NULL
+          AND started_at < ?
+          AND finished_at > ?
+      `).get(ride.id, newFinishedAt, newStartedAt);
+      if (overlap) {
+        return reply.code(409).send({ error: 'Time range overlaps another pending ride' });
+      }
+    }
+    db.prepare(`
+      UPDATE maeving_rides
+      SET started_at = ?, finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ?, notes = ?
+      WHERE id = ?
+    `).run(newStartedAt, newFinishedAt, durationMin, newEndSoc, whPerMile, notes !== undefined ? notes : ride.notes, ride.id);
+    const updated = db.prepare(`
+      SELECT r.*, t.description AS trip_name, t.distance_miles AS trip_miles
+      FROM maeving_rides r
+      JOIN maeving_trips t ON t.id = r.trip_id
+      WHERE r.id = ?
+    `).get(ride.id);
+    return reply.send(updated);
   });
 
   // ── Rebel cost ────────────────────────────────────────────────────────────────

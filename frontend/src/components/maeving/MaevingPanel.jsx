@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   calibrateSession,
   deleteRide,
+  finishRide,
   getConfig,
   getDevices,
   getLegs,
@@ -12,8 +13,10 @@ import {
   getSessionTaper,
   scheduleOvernight,
   skipCalibration,
+  startRide,
   startSession,
   stopSession,
+  updateRide,
 } from '../../api/maeving.js';
 import { SOCRoller } from '../tesla/SOCRoller.jsx';
 
@@ -139,10 +142,18 @@ function getSessionRowClass(session, device) {
   if (device?.cost_free) return 'bg-orange-950/30 border-orange-800/40';
   const legCount = [1, 2, 3, 4, 5, 6, 7, 8].filter((n) => session[`leg_${n}_trip_id`] != null).length;
   if (legCount === 1) return 'bg-green-950/30 border-green-800/40';
-  if (legCount > 1) return 'bg-amber-950/30 border-amber-800/40';
   return 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]';
 }
 
+function isoToDatetimeLocal(iso) {
+  if (!iso) return '';
+  return iso.slice(0, 16);
+}
+
+function datetimeLocalToIso(local) {
+  if (!local) return '';
+  return new Date(local).toISOString();
+}
 
 export function MaevingPanel() {
   const [devices, setDevices] = useState([]);
@@ -170,9 +181,25 @@ export function MaevingPanel() {
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
   const [legRebelCosts, setLegRebelCosts] = useState({});
   const [rebelCostStale, setRebelCostStale] = useState(false);
-  // Prestaged rides
+  // Prestaged rides (plug-in form)
   const [pendingRides, setPendingRides] = useState([]);
   const [checkedRideIds, setCheckedRideIds] = useState(() => new Set());
+  // Recent Trips — pending rides
+  const [recentPendingRides, setRecentPendingRides] = useState([]);
+  const [editRideId, setEditRideId] = useState(null);
+  const [editRideForm, setEditRideForm] = useState({});
+  const [rideEditError, setRideEditError] = useState('');
+  const [deleteRideConfirmId, setDeleteRideConfirmId] = useState(null);
+  const [addingRide, setAddingRide] = useState(false);
+  const [addRideForm, setAddRideForm] = useState({ trip_id: '', started_at: '', finished_at: '', start_soc_pct: '', end_soc_pct: '', notes: '' });
+  const [addRideError, setAddRideError] = useState('');
+  // Notes dialog
+  const [noteMode, setNoteMode] = useState('display');
+  const [noteRideId, setNoteRideId] = useState(null);
+  const [noteValue, setNoteValue] = useState('');
+  const [noteError, setNoteError] = useState('');
+  const noteDialogRef = useRef(null);
+
   const detailsIntervalRef = useRef(null);
   const priceRetryRef = useRef(null);
   const pendingSessionIdRef = useRef(null);
@@ -180,11 +207,12 @@ export function MaevingPanel() {
 
   const refresh = useCallback(async () => {
     try {
-      const [devs, all, tripList, cfg] = await Promise.all([
+      const [devs, all, tripList, cfg, pendingList] = await Promise.all([
         getDevices(),
         getSessions({}),
         getLegs(),
         getConfig(),
+        getPendingRides(),
       ]);
       setDevices(devs);
       const activeDeviceId =
@@ -204,6 +232,7 @@ export function MaevingPanel() {
       setRecentSessions(
         all.filter((s) => s.status !== 'active' && s.status !== 'scheduled').slice(0, 5),
       );
+      setRecentPendingRides(pendingList);
     } catch {
       // silent — stale data is fine
     }
@@ -353,7 +382,6 @@ export function MaevingPanel() {
 
     let slotIdx = 0;
 
-    // Prestaged rides fill first slots
     for (const ride of checkedRides) {
       if (slotIdx >= 8) break;
       slotIdx++;
@@ -364,7 +392,6 @@ export function MaevingPanel() {
       }
     }
 
-    // Manual legs fill remaining slots
     legs.forEach((leg, i) => {
       if (!leg.trip_id || slotIdx >= 8) return;
       slotIdx++;
@@ -514,6 +541,101 @@ export function MaevingPanel() {
       setError(err.message);
     } finally {
       setCalibrating(false);
+    }
+  }
+
+  // ── Pending ride edit helpers ────────────────────────────────────────────────
+
+  function startEditRide(ride) {
+    setEditRideId(ride.id);
+    setEditRideForm({
+      end_soc_pct: ride.end_soc_pct ?? '',
+      started_at: ride.started_at,
+      finished_at: ride.finished_at,
+      notes: ride.notes ?? '',
+    });
+    setRideEditError('');
+    setDeleteRideConfirmId(null);
+  }
+
+  async function handleSaveRideEdit(id) {
+    setRideEditError('');
+    const payload = {};
+    if (editRideForm.end_soc_pct !== '') payload.end_soc_pct = Number(editRideForm.end_soc_pct);
+    if (editRideForm.started_at) payload.started_at = editRideForm.started_at;
+    if (editRideForm.finished_at) payload.finished_at = editRideForm.finished_at;
+    if (editRideForm.notes !== undefined) payload.notes = editRideForm.notes;
+    try {
+      await updateRide(id, payload);
+      setEditRideId(null);
+      await refresh();
+    } catch (err) {
+      setRideEditError(err.message);
+    }
+  }
+
+  async function handleDeleteRide(id) {
+    try {
+      await deleteRide(id);
+      setDeleteRideConfirmId(null);
+      await refresh();
+    } catch (err) {
+      setRideEditError(err.message);
+    }
+  }
+
+  // ── Add ride helper ──────────────────────────────────────────────────────────
+
+  async function handleAddRide() {
+    setAddRideError('');
+    const { trip_id, started_at, finished_at, start_soc_pct, end_soc_pct, notes } = addRideForm;
+    if (!trip_id || !started_at || !finished_at || start_soc_pct === '' || end_soc_pct === '') {
+      setAddRideError('All fields are required.');
+      return;
+    }
+    if (new Date(finished_at) <= new Date(started_at)) {
+      setAddRideError('End time must be after start time.');
+      return;
+    }
+    try {
+      const ride = await startRide({ trip_id: Number(trip_id), start_soc_pct: Number(start_soc_pct) });
+      await finishRide(ride.id, { end_soc_pct: Number(end_soc_pct) });
+      await updateRide(ride.id, {
+        started_at: datetimeLocalToIso(started_at),
+        finished_at: datetimeLocalToIso(finished_at),
+        notes: notes || null,
+      });
+      setAddingRide(false);
+      setAddRideForm({ trip_id: '', started_at: '', finished_at: '', start_soc_pct: '', end_soc_pct: '', notes: '' });
+      await refresh();
+    } catch (err) {
+      setAddRideError(err.message);
+    }
+  }
+
+  // ── Notes dialog helpers ─────────────────────────────────────────────────────
+
+  function openNoteDialog(rideId, mode, currentNote) {
+    setNoteRideId(rideId);
+    setNoteMode(mode);
+    setNoteValue(currentNote ?? '');
+    setNoteError('');
+    noteDialogRef.current.showModal();
+  }
+
+  async function handleNoteSave() {
+    if (noteMode === 'display') {
+      try {
+        await updateRide(noteRideId, { notes: noteValue || null });
+        noteDialogRef.current.close();
+        setNoteError('');
+        await refresh();
+      } catch (err) {
+        setNoteError(err.message);
+      }
+    } else {
+      setEditRideForm((f) => ({ ...f, notes: noteValue }));
+      noteDialogRef.current.close();
     }
   }
 
@@ -792,25 +914,19 @@ export function MaevingPanel() {
 
                 return (
                   <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
-                    {/* Current SOC float label — aligned above the pip */}
                     <div className="mb-1 flex w-full items-end">
                       <div className="flex-shrink-0" style={{ width: `${estimatedSoc}%` }} />
                       <span className="-translate-x-1/2 transform whitespace-nowrap text-xs font-semibold text-slate-200">
                         ~{Math.round(estimatedSoc)}%
                       </span>
                     </div>
-
-                    {/* Bar track */}
                     <div className="relative flex h-2.5 w-full items-center rounded-full bg-slate-700/50">
-                      {/* Dead zone left of start */}
                       {socStartPct > 0 && (
                         <div className="h-full flex-shrink-0" style={{ width: `${socStartPct}%` }} />
                       )}
-                      {/* Green fill: soc_start_pct → estimatedSoc */}
                       {fillPct > 0 && (
                         <div className="h-full flex-shrink-0 bg-emerald-500" style={{ width: `${fillPct}%` }} />
                       )}
-                      {/* Unfilled target zone with pip at its left edge */}
                       {unfilledPct > 0 ? (
                         <div
                           className="relative h-full flex-shrink-0 bg-slate-500/30"
@@ -819,12 +935,9 @@ export function MaevingPanel() {
                           <div className="absolute -left-2 top-1/2 h-4 w-4 -translate-y-1/2 rounded-full border-2 border-[color:var(--color-surface-0)] bg-white shadow-sm" />
                         </div>
                       ) : (
-                        /* estimatedSoc reached target — pip at right edge of green fill */
                         <div className="absolute right-0 top-1/2 h-4 w-4 -translate-y-1/2 translate-x-2 rounded-full border-2 border-[color:var(--color-surface-0)] bg-emerald-400 shadow-sm" />
                       )}
                     </div>
-
-                    {/* Start / target labels below bar */}
                     <div className="mt-1 flex w-full items-start text-xs text-slate-400">
                       <div className="flex-shrink-0" style={{ width: `${socStartPct}%` }} />
                       <span className="-translate-x-1/2 transform whitespace-nowrap">{socStartPct}%</span>
@@ -832,8 +945,6 @@ export function MaevingPanel() {
                       <span className="translate-x-1/2 transform whitespace-nowrap">{socTargetPct}%</span>
                       <div className="flex-shrink-0" style={{ width: `${100 - socTargetPct}%` }} />
                     </div>
-
-                    {/* Time estimate */}
                     {etaText && (
                       <p className="mt-2 text-center text-sm text-emerald-300">{etaText}</p>
                     )}
@@ -1292,29 +1403,296 @@ export function MaevingPanel() {
           }
         }
         const recentTripLegs = tripLegRows.slice(0, 5);
-        if (recentTripLegs.length === 0) return null;
-        const hasMultiLeg = recentTripLegs.some((r) => r.isMultiLeg);
+
+        if (recentTripLegs.length === 0 && recentPendingRides.length === 0 && !addingRide) return null;
+
         const hasLFRow = recentTripLegs.some((r) => devices.find((d) => d.id === r.session.device_id)?.cost_free);
+
         return (
           <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
             <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
               Recent Trips
             </p>
             <div className="flex flex-col gap-2">
-              <div className="flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-slate-500">
-                <span>Trip</span>
-                <span>Date</span>
-                <span>Trip Time</span>
-                <span>Wh/mi</span>
-                <span>Cost</span>
-              </div>
-              {recentTripLegs.map((row, i) => {
+
+              {/* Pending rides header + Add Ride button */}
+              {recentPendingRides.length > 0 || addingRide ? (
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-semibold uppercase tracking-[0.2em] text-yellow-500">
+                    Pending Rides
+                  </span>
+                  {!addingRide && (
+                    <button
+                      type="button"
+                      onClick={() => { setAddingRide(true); setAddRideError(''); }}
+                      className="rounded-xl border border-[color:var(--color-border)] px-3 py-1 text-xs text-slate-300 hover:border-slate-500"
+                    >
+                      + Add Ride
+                    </button>
+                  )}
+                </div>
+              ) : (
+                <div className="mb-2 flex justify-end">
+                  <button
+                    type="button"
+                    onClick={() => { setAddingRide(true); setAddRideError(''); }}
+                    className="rounded-xl border border-[color:var(--color-border)] px-3 py-1 text-xs text-slate-300 hover:border-slate-500"
+                  >
+                    + Add Ride
+                  </button>
+                </div>
+              )}
+
+              {/* Add Ride inline form */}
+              {addingRide && (
+                <div className="mb-3 rounded-2xl border border-yellow-700/50 bg-yellow-950/20 px-4 py-3">
+                  <div className="flex flex-wrap gap-2 items-end">
+                    <select
+                      className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200"
+                      value={addRideForm.trip_id}
+                      onChange={e => setAddRideForm(f => ({ ...f, trip_id: e.target.value }))}
+                    >
+                      <option value="">Select Leg</option>
+                      {trips.map(t => (
+                        <option key={t.id} value={t.id}>{t.description} ({t.distance_miles} mi)</option>
+                      ))}
+                    </select>
+                    <label className="flex flex-col text-xs text-slate-400 gap-1">
+                      Start
+                      <input
+                        type="datetime-local"
+                        className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
+                        value={addRideForm.started_at}
+                        onChange={e => setAddRideForm(f => ({ ...f, started_at: e.target.value }))}
+                      />
+                    </label>
+                    <label className="flex flex-col text-xs text-slate-400 gap-1">
+                      End
+                      <input
+                        type="datetime-local"
+                        className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
+                        value={addRideForm.finished_at}
+                        onChange={e => setAddRideForm(f => ({ ...f, finished_at: e.target.value }))}
+                      />
+                    </label>
+                    <label className="flex flex-col text-xs text-slate-400 gap-1">
+                      Start SOC %
+                      <input
+                        type="number" min="0" max="100"
+                        className="w-20 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
+                        value={addRideForm.start_soc_pct}
+                        onChange={e => setAddRideForm(f => ({ ...f, start_soc_pct: e.target.value }))}
+                      />
+                    </label>
+                    <label className="flex flex-col text-xs text-slate-400 gap-1">
+                      End SOC %
+                      <input
+                        type="number" min="0" max="100"
+                        className="w-20 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
+                        value={addRideForm.end_soc_pct}
+                        onChange={e => setAddRideForm(f => ({ ...f, end_soc_pct: e.target.value }))}
+                      />
+                    </label>
+                    <button
+                      type="button"
+                      onClick={handleAddRide}
+                      className="rounded-xl bg-[color:var(--color-accent)] px-4 py-2 text-sm font-semibold text-white hover:bg-[color:var(--color-accent-hover)]"
+                    >
+                      Save
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { setAddingRide(false); setAddRideError(''); }}
+                      className="rounded-xl border border-[color:var(--color-border)] px-4 py-2 text-sm text-slate-400 hover:border-slate-500"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                  {addRideError && (
+                    <p className="mt-2 text-xs text-red-400">{addRideError}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Pending ride rows */}
+              {recentPendingRides.map((ride) => {
+                const isEditing = editRideId === ride.id;
+                const isConfirmingDelete = deleteRideConfirmId === ride.id;
+
+                if (isConfirmingDelete) {
+                  return (
+                    <div key={ride.id} className="rounded-2xl border border-red-800/50 bg-red-950/20 px-4 py-3 text-sm">
+                      <div className="flex items-center justify-between gap-3">
+                        <span className="text-slate-300">
+                          Delete <span className="font-semibold text-slate-100">{ride.trip_name}</span>?
+                        </span>
+                        <div className="flex gap-2">
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteRide(ride.id)}
+                            className="rounded-xl bg-red-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-600"
+                          >
+                            Yes
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => { setDeleteRideConfirmId(null); setRideEditError(''); }}
+                            className="rounded-xl border border-[color:var(--color-border)] px-4 py-1.5 text-sm text-slate-400 hover:border-slate-500"
+                          >
+                            No
+                          </button>
+                        </div>
+                      </div>
+                      {rideEditError && <p className="mt-1 text-xs text-red-400">{rideEditError}</p>}
+                    </div>
+                  );
+                }
+
+                if (isEditing) {
+                  return (
+                    <div key={ride.id} className="rounded-2xl border border-amber-700/50 bg-amber-950/30 px-4 py-3">
+                      <div className="flex flex-wrap gap-2 items-end">
+                        <label className="flex flex-col text-xs text-slate-400 gap-1">
+                          End SOC %
+                          <input
+                            type="number" min="0" max="100"
+                            className="w-20 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
+                            value={editRideForm.end_soc_pct}
+                            onChange={e => setEditRideForm(f => ({ ...f, end_soc_pct: e.target.value }))}
+                          />
+                        </label>
+                        <label className="flex flex-col text-xs text-slate-400 gap-1">
+                          Start
+                          <input
+                            type="datetime-local"
+                            className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
+                            value={isoToDatetimeLocal(editRideForm.started_at)}
+                            onChange={e => setEditRideForm(f => ({ ...f, started_at: datetimeLocalToIso(e.target.value) }))}
+                          />
+                        </label>
+                        <label className="flex flex-col text-xs text-slate-400 gap-1">
+                          End
+                          <input
+                            type="datetime-local"
+                            className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
+                            value={isoToDatetimeLocal(editRideForm.finished_at)}
+                            onChange={e => setEditRideForm(f => ({ ...f, finished_at: datetimeLocalToIso(e.target.value) }))}
+                          />
+                        </label>
+                        <button
+                          type="button"
+                          onClick={() => openNoteDialog(ride.id, 'edit', editRideForm.notes)}
+                          className="self-end rounded-xl border border-[color:var(--color-border)] px-3 py-1.5 text-xs text-slate-400 hover:border-slate-500"
+                        >
+                          {editRideForm.notes ? 'Edit Note' : 'Note'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleSaveRideEdit(ride.id)}
+                          className="self-end rounded-xl bg-[color:var(--color-accent)] px-4 py-2 text-sm font-semibold text-white hover:bg-[color:var(--color-accent-hover)]"
+                        >
+                          Save
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => { setEditRideId(null); setRideEditError(''); }}
+                          className="self-end rounded-xl border border-[color:var(--color-border)] px-4 py-2 text-sm text-slate-400 hover:border-slate-500"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                      {rideEditError && <p className="mt-2 text-xs text-red-400">{rideEditError}</p>}
+                    </div>
+                  );
+                }
+
+                return (
+                  <div
+                    key={ride.id}
+                    className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm"
+                  >
+                    <div className="flex flex-col gap-0.5 min-w-0">
+                      <span className="font-semibold text-yellow-400">{ride.trip_name}</span>
+                      <span className="text-xs text-slate-500">
+                        {new Date(ride.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+                        {' · '}
+                        {formatTimeRange(ride.started_at, ride.finished_at)}
+                        {ride.duration_min != null ? ` · ${formatMinutes(ride.duration_min)}` : null}
+                      </span>
+                    </div>
+                    <span className="text-xs text-slate-500">
+                      {ride.start_soc_pct != null && ride.end_soc_pct != null
+                        ? `${ride.start_soc_pct}%→${ride.end_soc_pct}%`
+                        : null}
+                      {ride.wh_per_mile != null
+                        ? ` · ${ride.wh_per_mile < 100 ? ride.wh_per_mile.toFixed(1) : Math.round(ride.wh_per_mile)} Wh/mi`
+                        : null}
+                    </span>
+                    <div className="flex items-center gap-2">
+                      {ride.notes ? (
+                        <button
+                          type="button"
+                          onClick={() => openNoteDialog(ride.id, 'display', ride.notes)}
+                          className="rounded px-1.5 py-0.5 text-xs text-yellow-400 border border-yellow-700/40 hover:border-yellow-500"
+                          title="View/edit note"
+                        >
+                          note
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => openNoteDialog(ride.id, 'display', '')}
+                          className="rounded px-1.5 py-0.5 text-xs text-slate-500 border border-[color:var(--color-border)] hover:border-slate-500"
+                          title="Add note"
+                        >
+                          +note
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => startEditRide(ride)}
+                        className="rounded p-1 text-base text-slate-500 hover:text-slate-300"
+                        title="Edit ride"
+                      >
+                        ✎
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => { setDeleteRideConfirmId(ride.id); setEditRideId(null); setRideEditError(''); }}
+                        className="rounded p-1 text-base text-slate-500 hover:text-red-400"
+                        title="Delete ride"
+                      >
+                        ×
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+
+              {/* Separator between pending and completed */}
+              {(recentPendingRides.length > 0 || addingRide) && recentTripLegs.length > 0 && (
+                <hr className="border-t border-[color:var(--color-border)] my-2" />
+              )}
+
+              {/* Column header for completed trips */}
+              {recentTripLegs.length > 0 && (
+                <div className="flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-slate-500">
+                  <span>Trip</span>
+                  <span>Date</span>
+                  <span>Trip Time</span>
+                  <span>Wh/mi</span>
+                  <span>Cost</span>
+                </div>
+              )}
+
+              {/* Completed trip leg rows */}
+              {recentTripLegs.map((row) => {
                 const { session, legNum, totalLegs, isMultiLeg, trip, durationMin, isLastLeg } = row;
                 const device = devices.find((d) => d.id === session.device_id);
                 const isLF = !!device?.cost_free;
-                const cellColor = isLF ? 'text-orange-300' : (isMultiLeg ? 'text-yellow-400' : 'text-slate-300');
-                const dateCellColor = isLF ? 'text-orange-300' : (isMultiLeg ? 'text-yellow-400' : 'text-slate-500');
-                const timeCellColor = isLF ? 'text-orange-300' : (isMultiLeg ? 'text-yellow-400' : 'text-slate-500');
+                const cellColor = isLF ? 'text-orange-300' : 'text-slate-300';
+                const dateCellColor = isLF ? 'text-orange-300' : 'text-slate-500';
+                const timeCellColor = isLF ? 'text-orange-300' : 'text-slate-500';
                 const tripName = trip?.description ?? `Trip #${row.tripId}`;
                 const legWhPerMile = session[`leg_${legNum}_wh_per_mile`] ?? null;
                 const legStartSoc = session[`leg_${legNum}_start_soc_pct`] ?? null;
@@ -1413,11 +1791,9 @@ export function MaevingPanel() {
                 );
               })}
             </div>
-            {hasMultiLeg && (
-              <p className="mt-2 text-xs text-slate-600">
-                Multi-leg trips shown in yellow{hasLFRow ? '; Lake Forest sessions in orange' : ''} — cost data reflects the final leg's charge session.
-              </p>
-            )}
+            <p className="mt-2 text-xs text-slate-600">
+              Pending rides shown in yellow{hasLFRow ? '; Lake Forest sessions in orange' : ''} — cost data reflects the final leg's charge session.
+            </p>
           </section>
         );
       })()}
@@ -1491,6 +1867,41 @@ export function MaevingPanel() {
           )}
         </section>
       )}
+
+      {/* Notes dialog */}
+      <dialog
+        ref={noteDialogRef}
+        className="w-full max-w-md rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-6 text-slate-200 backdrop:bg-black/60"
+      >
+        <p className="mb-3 text-sm font-semibold text-slate-300">
+          {noteMode === 'display' ? 'Note' : 'Add Note'}
+        </p>
+        <textarea
+          className="w-full rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200 focus:outline-none"
+          rows={4}
+          value={noteValue}
+          onChange={e => setNoteValue(e.target.value)}
+          placeholder="Add a note…"
+        />
+        {noteError && <p className="mt-2 text-xs text-red-400">{noteError}</p>}
+        <div className="mt-4 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => { noteDialogRef.current.close(); setNoteError(''); }}
+            className="rounded-xl border border-[color:var(--color-border)] px-4 py-2 text-sm text-slate-400 hover:border-slate-500"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={handleNoteSave}
+            className="rounded-xl bg-[color:var(--color-accent)] px-4 py-2 text-sm font-semibold text-white hover:bg-[color:var(--color-accent-hover)]"
+          >
+            Save
+          </button>
+        </div>
+      </dialog>
+
     </div>
   );
 }
