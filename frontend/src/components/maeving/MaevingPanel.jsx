@@ -221,7 +221,7 @@ export function MaevingPanel() {
       }
       setActiveSessions(map);
       setRecentSessions(
-        all.filter((s) => s.status !== 'active' && s.status !== 'scheduled').slice(0, 5),
+        all.filter((s) => s.status !== 'active' && s.status !== 'scheduled').slice(0, 10),
       );
       setRecentPendingRides(pendingList);
     } catch {
@@ -1389,7 +1389,7 @@ export function MaevingPanel() {
             });
           }
         }
-        const recentTripLegs = tripLegRows.slice(0, 5);
+        const recentTripLegs = tripLegRows.slice(0, 10);
 
         if (recentTripLegs.length === 0 && recentPendingRides.length === 0 && !addingRide) return null;
 
