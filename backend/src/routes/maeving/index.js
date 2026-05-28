@@ -78,7 +78,10 @@ export default async function maevingRoutes(fastify) {
 
   fastify.get('/api/maeving/trips', async (_req, reply) => {
     return reply.send(
-      db.prepare('SELECT * FROM maeving_trips ORDER BY description ASC').all(),
+      db.prepare(`
+        SELECT * FROM maeving_trips
+        ORDER BY hidden ASC, CASE WHEN hidden = 1 THEN id END DESC, description ASC
+      `).all(),
     );
   });
 
@@ -101,14 +104,15 @@ export default async function maevingRoutes(fastify) {
     const trip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(req.params.id);
     if (!trip) return reply.code(404).send({ error: 'not found' });
 
-    const { description, distance_miles } = req.body ?? {};
+    const { description, distance_miles, hidden } = req.body ?? {};
     db.prepare(`
       UPDATE maeving_trips
       SET description    = COALESCE(?, description),
           distance_miles = COALESCE(?, distance_miles),
+          hidden         = COALESCE(?, hidden),
           updated_at     = datetime('now')
       WHERE id = ?
-    `).run(description ?? null, distance_miles ?? null, trip.id);
+    `).run(description ?? null, distance_miles ?? null, hidden ?? null, trip.id);
 
     return reply.send(db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(trip.id));
   });
@@ -134,7 +138,7 @@ export default async function maevingRoutes(fastify) {
              r.start_soc_pct, r.end_soc_pct, r.wh_per_mile,
              t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r
-      JOIN maeving_trips t ON t.id = r.trip_id
+      JOIN maeving_trips t ON t.id = r.trip_id AND t.hidden = 0
       WHERE r.finished_at IS NULL
       LIMIT 1
     `).get();
@@ -147,7 +151,7 @@ export default async function maevingRoutes(fastify) {
              r.start_soc_pct, r.end_soc_pct, r.wh_per_mile, r.notes,
              t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r
-      JOIN maeving_trips t ON t.id = r.trip_id
+      JOIN maeving_trips t ON t.id = r.trip_id AND t.hidden = 0
       WHERE r.finished_at IS NOT NULL
       ORDER BY r.started_at ASC
     `).all();
@@ -160,6 +164,7 @@ export default async function maevingRoutes(fastify) {
 
     const trip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(trip_id);
     if (!trip) return reply.code(404).send({ error: 'trip not found' });
+    if (trip.hidden) return reply.code(400).send({ error: 'trip is hidden' });
 
     const existing = db.prepare(
       'SELECT id FROM maeving_rides WHERE finished_at IS NULL LIMIT 1',
@@ -245,24 +250,38 @@ export default async function maevingRoutes(fastify) {
     const ride = db.prepare('SELECT * FROM maeving_rides WHERE id = ?').get(req.params.id);
     if (!ride) return reply.code(404).send({ error: 'ride not found' });
     if (ride.finished_at == null) return reply.code(400).send({ error: 'cannot edit an in-progress ride' });
-    const { end_soc_pct, started_at, finished_at, notes } = req.body ?? {};
+    const { end_soc_pct, started_at, finished_at, notes, trip_id } = req.body ?? {};
+
+    let tripForCalc = null;
+    if (trip_id !== undefined) {
+      const newTrip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(trip_id);
+      if (!newTrip) return reply.code(400).send({ error: 'trip not found' });
+      if (newTrip.hidden) return reply.code(400).send({ error: 'trip is hidden' });
+      tripForCalc = newTrip;
+    }
+
     const newStartedAt = started_at ?? ride.started_at;
     const newFinishedAt = finished_at ?? ride.finished_at;
     const durationMin = Math.round(
       ((new Date(newFinishedAt) - new Date(newStartedAt)) / 60000) * 10,
     ) / 10;
     const newEndSoc = end_soc_pct !== undefined ? end_soc_pct : ride.end_soc_pct;
+    const newTripId = trip_id !== undefined ? trip_id : ride.trip_id;
+
     let whPerMile = ride.wh_per_mile;
-    if (end_soc_pct !== undefined && ride.start_soc_pct != null && newEndSoc != null) {
-      const trip = db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(ride.trip_id);
-      if (trip?.distance_miles > 0) {
-        const effectiveCapacityWh = db
-          .prepare('SELECT effective_capacity_wh FROM maeving_config WHERE id = 1')
-          .get()?.effective_capacity_wh ?? 2880;
-        const whUsed = ((ride.start_soc_pct - newEndSoc) / 100) * effectiveCapacityWh;
-        whPerMile = whUsed / trip.distance_miles;
+    if (trip_id !== undefined || end_soc_pct !== undefined) {
+      const trip = tripForCalc ?? db.prepare('SELECT * FROM maeving_trips WHERE id = ?').get(ride.trip_id);
+      if (ride.start_soc_pct != null && newEndSoc != null && trip?.distance_miles > 0) {
+        const effectiveCapacityWh = getEffectiveCapacity();
+        if (effectiveCapacityWh > 0) {
+          const whUsed = ((ride.start_soc_pct - newEndSoc) / 100) * effectiveCapacityWh;
+          whPerMile = whUsed / trip.distance_miles;
+        }
+      } else {
+        whPerMile = null;
       }
     }
+
     if (started_at || finished_at) {
       const overlap = db.prepare(`
         SELECT id FROM maeving_rides
@@ -277,9 +296,9 @@ export default async function maevingRoutes(fastify) {
     }
     db.prepare(`
       UPDATE maeving_rides
-      SET started_at = ?, finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ?, notes = ?
+      SET started_at = ?, finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ?, notes = ?, trip_id = ?
       WHERE id = ?
-    `).run(newStartedAt, newFinishedAt, durationMin, newEndSoc, whPerMile, notes !== undefined ? notes : ride.notes, ride.id);
+    `).run(newStartedAt, newFinishedAt, durationMin, newEndSoc, whPerMile, notes !== undefined ? notes : ride.notes, newTripId, ride.id);
     const updated = db.prepare(`
       SELECT r.*, t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r

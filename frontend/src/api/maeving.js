@@ -32,6 +32,14 @@ export async function deleteLeg(id) {
   return apiFetch(`/api/maeving/trips/${id}`, { method: 'DELETE' });
 }
 
+export async function toggleLegHidden(id, hidden) {
+  return apiFetch(`/api/maeving/trips/${id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ hidden }),
+  });
+}
+
 export async function getActiveRide() {
   return apiFetch('/api/maeving/rides/active');
 }

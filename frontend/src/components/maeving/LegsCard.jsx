@@ -1,5 +1,7 @@
 import { useEffect, useState } from 'react';
-import { getLegs, createLeg, updateLeg, deleteLeg } from '../../api/maeving.js';
+import { getLegs, createLeg, updateLeg, deleteLeg, toggleLegHidden } from '../../api/maeving.js';
+
+const PAGE_SIZE = 10;
 
 function PencilIcon() {
   return (
@@ -13,6 +15,24 @@ function TrashIcon() {
   return (
     <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
       <path fillRule="evenodd" d="M9 2a1 1 0 00-.894.553L7.382 4H4a1 1 0 000 2v10a2 2 0 002 2h8a2 2 0 002-2V6a1 1 0 100-2h-3.382l-.724-1.447A1 1 0 0011 2H9zM7 8a1 1 0 012 0v6a1 1 0 11-2 0V8zm5-1a1 1 0 00-1 1v6a1 1 0 102 0V8a1 1 0 00-1-1z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function EyeIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path d="M10 12a2 2 0 100-4 2 2 0 000 4z" />
+      <path fillRule="evenodd" d="M.458 10C1.732 5.943 5.522 3 10 3s8.268 2.943 9.542 7c-1.274 4.057-5.064 7-9.542 7S1.732 14.057.458 10zM14 10a4 4 0 11-8 0 4 4 0 018 0z" clipRule="evenodd" />
+    </svg>
+  );
+}
+
+function EyeSlashIcon() {
+  return (
+    <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
+      <path fillRule="evenodd" d="M3.707 2.293a1 1 0 00-1.414 1.414l14 14a1 1 0 001.414-1.414l-1.473-1.473A10.014 10.014 0 0019.542 10C18.268 5.943 14.478 3 10 3a9.958 9.958 0 00-4.512 1.074l-1.78-1.781zm4.261 4.26l1.514 1.515a2.003 2.003 0 012.45 2.45l1.514 1.514a4 4 0 00-5.478-5.478z" clipRule="evenodd" />
+      <path d="M12.454 16.697L9.75 13.992a4 4 0 01-3.742-3.741L2.335 6.578A9.98 9.98 0 00.458 10c1.274 4.057 5.064 7 9.542 7 .847 0 1.669-.105 2.454-.303z" />
     </svg>
   );
 }
@@ -62,10 +82,12 @@ export function LegsCard() {
   const [editId, setEditId] = useState(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [error, setError] = useState('');
+  const [page, setPage] = useState(0);
 
   async function load() {
     try {
       setLegs(await getLegs());
+      setPage(0);
     } catch { /* silent */ }
   }
 
@@ -120,9 +142,22 @@ export function LegsCard() {
     setError('');
   }
 
+  async function handleToggleHidden(id, hidden) {
+    setError('');
+    try {
+      await toggleLegHidden(id, hidden);
+      await load();
+    } catch (err) {
+      setError(err.message);
+    }
+  }
+
   function truncate(str, n = 30) {
     return str.length > n ? str.slice(0, n) + '…' : str;
   }
+
+  const totalPages = Math.ceil(legs.length / PAGE_SIZE);
+  const visibleLegs = legs.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
 
   return (
     <div className="mx-auto w-full max-w-5xl">
@@ -158,7 +193,7 @@ export function LegsCard() {
         )}
 
         <div className="flex flex-col gap-2">
-          {legs.map(leg => {
+          {visibleLegs.map(leg => {
             if (editId === leg.id) {
               return (
                 <div
@@ -207,7 +242,9 @@ export function LegsCard() {
                 key={leg.id}
                 className="flex items-center justify-between rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3"
               >
-                <span className="flex-1 text-sm text-slate-300">{leg.description}</span>
+                <span className={`flex-1 text-sm text-slate-300${leg.hidden ? ' opacity-40 italic' : ''}`}>
+                  {leg.description}
+                </span>
                 <span className="mr-4 text-sm text-slate-500">{leg.distance_miles} mi</span>
                 <div className="flex gap-1">
                   <button
@@ -217,6 +254,14 @@ export function LegsCard() {
                     title="Edit"
                   >
                     <PencilIcon />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleToggleHidden(leg.id, leg.hidden ? 0 : 1)}
+                    className="rounded-lg p-1.5 text-slate-400 transition-colors hover:bg-[color:var(--color-surface-1)] hover:text-slate-200"
+                    title={leg.hidden ? 'Unhide' : 'Hide'}
+                  >
+                    {leg.hidden ? <EyeSlashIcon /> : <EyeIcon />}
                   </button>
                   <button
                     type="button"
@@ -231,6 +276,28 @@ export function LegsCard() {
             );
           })}
         </div>
+
+        {totalPages > 1 && (
+          <div className="mt-3 flex items-center justify-between text-sm text-slate-500">
+            <button
+              type="button"
+              disabled={page === 0}
+              onClick={() => setPage((p) => p - 1)}
+              className="rounded-xl border border-[color:var(--color-border)] px-3 py-1.5 transition-colors hover:border-slate-500 disabled:opacity-40"
+            >
+              Previous
+            </button>
+            <span>{page + 1} / {totalPages}</span>
+            <button
+              type="button"
+              disabled={page === totalPages - 1}
+              onClick={() => setPage((p) => p + 1)}
+              className="rounded-xl border border-[color:var(--color-border)] px-3 py-1.5 transition-colors hover:border-slate-500 disabled:opacity-40"
+            >
+              Next
+            </button>
+          </div>
+        )}
       </section>
     </div>
   );

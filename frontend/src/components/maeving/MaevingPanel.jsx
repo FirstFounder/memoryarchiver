@@ -541,6 +541,7 @@ export function MaevingPanel() {
   function startEditRide(ride) {
     setEditRideId(ride.id);
     setEditRideForm({
+      trip_id: ride.trip_id ?? '',
       end_soc_pct: ride.end_soc_pct ?? '',
       notes: ride.notes ?? '',
     });
@@ -551,6 +552,7 @@ export function MaevingPanel() {
   async function handleSaveRideEdit(id) {
     setRideEditError('');
     const payload = {};
+    if (editRideForm.trip_id !== '') payload.trip_id = Number(editRideForm.trip_id);
     if (editRideForm.end_soc_pct !== '') payload.end_soc_pct = Number(editRideForm.end_soc_pct);
     if (editRideForm.notes !== undefined) payload.notes = editRideForm.notes;
     try {
@@ -1076,7 +1078,7 @@ export function MaevingPanel() {
                       }}
                     >
                       <option value="">— no trip —</option>
-                      {trips.map((t) => (
+                      {trips.filter((t) => !t.hidden).map((t) => (
                         <option key={t.id} value={t.id}>
                           {t.description} ({t.distance_miles} mi)
                         </option>
@@ -1443,7 +1445,7 @@ export function MaevingPanel() {
                       onChange={e => setAddRideForm(f => ({ ...f, trip_id: e.target.value }))}
                     >
                       <option value="">Select Leg</option>
-                      {trips.map(t => (
+                      {trips.filter(t => !t.hidden).map(t => (
                         <option key={t.id} value={t.id}>{t.description} ({t.distance_miles} mi)</option>
                       ))}
                     </select>
@@ -1545,6 +1547,19 @@ export function MaevingPanel() {
                         {formatTimeRange(ride.started_at, ride.finished_at)} · {formatMinutes(ride.duration_min)}
                       </p>
                       <div className="flex flex-wrap gap-2 items-end">
+                        <label className="flex flex-col text-xs text-slate-400 gap-1">
+                          Leg
+                          <select
+                            className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200"
+                            value={editRideForm.trip_id}
+                            onChange={e => setEditRideForm(f => ({ ...f, trip_id: e.target.value }))}
+                          >
+                            <option value="">Select Leg</option>
+                            {trips.filter(t => !t.hidden).map(t => (
+                              <option key={t.id} value={t.id}>{t.description} ({t.distance_miles} mi)</option>
+                            ))}
+                          </select>
+                        </label>
                         <label className="flex flex-col text-xs text-slate-400 gap-1">
                           End SOC %
                           <input
