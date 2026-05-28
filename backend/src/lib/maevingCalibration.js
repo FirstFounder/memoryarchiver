@@ -114,6 +114,7 @@ export function hasPendingCalibration() {
     SELECT * FROM maeving_sessions
     WHERE (status = 'complete' OR status = 'charger_complete')
       AND calibration_complete = 0
+      AND (wh_delivered IS NULL OR wh_delivered > 0)
     ORDER BY ended_at DESC
     LIMIT 1
   `).get() ?? null;

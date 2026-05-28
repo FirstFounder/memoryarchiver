@@ -146,6 +146,8 @@ function getSessionRowClass(session, device) {
 }
 
 
+const SITE_DEFAULT_SOC = { BG: 40, MH: 84, LF: 100 };
+
 export function MaevingPanel() {
   const [devices, setDevices] = useState([]);
   const [selectedId, setSelectedId] = useState(null);
@@ -246,6 +248,15 @@ export function MaevingPanel() {
 
   // Poll active session details for live Wh estimate
   const activeSession = activeSessions[selectedId] ?? null;
+
+  // Apply per-site default target SOC when device selection changes (no active session)
+  useEffect(() => {
+    if (activeSession) return;
+    const siteKey = selectedDevice?.site_key;
+    if (siteKey && siteKey in SITE_DEFAULT_SOC) {
+      setSocTarget(SITE_DEFAULT_SOC[siteKey]);
+    }
+  }, [selectedId, devices]);
 
   useEffect(() => {
     if (detailsIntervalRef.current) {
@@ -785,7 +796,7 @@ export function MaevingPanel() {
                 <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-4 text-sm text-slate-300">
                   Plug will turn on at{' '}
                   <span className="font-semibold text-slate-100">
-                    {formatCtTime(activeSession.scheduled_start_at)} CT
+                    {activeSession.scheduled_start_at ? `${formatCtTime(activeSession.scheduled_start_at)} CT` : 'pending…'}
                   </span>
                   {activeSession.departure_time && (
                     <>
@@ -871,8 +882,7 @@ export function MaevingPanel() {
 
               {pendingPrices && (
                 <div className="rounded-2xl border border-sky-700/50 bg-sky-900/20 px-4 py-3 text-sm text-sky-300">
-                  Prices not yet available — start time will be optimized after 7:05 PM. Plug will
-                  turn on at 3:00 AM as a fallback.
+                  Day-ahead prices not yet published. Start time will be optimized at 7:05 PM CT. Fallback: 3:00 AM CT.
                 </div>
               )}
 
