@@ -174,7 +174,12 @@ async function runScheduledSessions() {
         session.id,
       );
     }
-    db.prepare(`UPDATE maeving_sessions SET status = 'active' WHERE id = ?`).run(session.id);
+    const activatedAt = new Date().toISOString();
+    db.prepare(`
+      UPDATE maeving_sessions
+      SET status = 'active', started_at = ?
+      WHERE id = ?
+    `).run(activatedAt, session.id);
     if (session.soc_target_pct === 100) {
       schedulerLogger?.info(
         { sessionId: session.id },
