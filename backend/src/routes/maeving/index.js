@@ -148,6 +148,7 @@ export default async function maevingRoutes(fastify) {
     const rides = db.prepare(`
       SELECT r.id, r.trip_id, r.started_at, r.finished_at, r.duration_min,
              r.start_soc_pct, r.end_soc_pct, r.wh_per_mile, r.notes,
+             r.windbreaker, r.overheat_pack, r.overheat_motor, r.overheat_level, r.sporty_level,
              t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r
       JOIN maeving_trips t ON t.id = r.trip_id AND t.hidden = 0
@@ -195,7 +196,12 @@ export default async function maevingRoutes(fastify) {
     if (!ride) return reply.code(400).send({ error: 'ride not found' });
     if (ride.finished_at != null) return reply.code(400).send({ error: 'ride already finished' });
 
-    const { end_soc_pct } = req.body ?? {};
+    const { end_soc_pct, windbreaker, overheat_pack, overheat_motor, overheat_level, sporty_level } = req.body ?? {};
+
+    if (end_soc_pct == null || !Number.isInteger(end_soc_pct) || end_soc_pct < 0 || end_soc_pct > 100) {
+      return reply.code(400).send({ error: 'end_soc_pct is required and must be an integer 0–100' });
+    }
+
     const finishedAt = new Date().toISOString();
     const durationMin = Math.round(
       ((new Date(finishedAt) - new Date(ride.started_at)) / 60000) * 10,
@@ -217,12 +223,15 @@ export default async function maevingRoutes(fastify) {
     }
 
     db.prepare(`
-      UPDATE maeving_rides SET finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ? WHERE id = ?
-    `).run(finishedAt, durationMin, end_soc_pct ?? null, whPerMile, ride.id);
+      UPDATE maeving_rides
+      SET finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ?,
+          windbreaker = ?, overheat_pack = ?, overheat_motor = ?, overheat_level = ?, sporty_level = ?
+      WHERE id = ?
+    `).run(finishedAt, durationMin, end_soc_pct, whPerMile,
+           windbreaker ?? null, overheat_pack ?? null, overheat_motor ?? null, overheat_level ?? null, sporty_level ?? null,
+           ride.id);
 
-    if (end_soc_pct != null) {
-      db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(end_soc_pct);
-    }
+    db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(end_soc_pct);
 
     return reply.send({
       id: ride.id,
@@ -233,8 +242,13 @@ export default async function maevingRoutes(fastify) {
       finished_at: finishedAt,
       duration_min: durationMin,
       start_soc_pct: ride.start_soc_pct ?? null,
-      end_soc_pct: end_soc_pct ?? null,
+      end_soc_pct,
       wh_per_mile: whPerMile,
+      windbreaker: windbreaker ?? null,
+      overheat_pack: overheat_pack ?? null,
+      overheat_motor: overheat_motor ?? null,
+      overheat_level: overheat_level ?? null,
+      sporty_level: sporty_level ?? null,
     });
   });
 
@@ -250,6 +264,12 @@ export default async function maevingRoutes(fastify) {
     if (!ride) return reply.code(404).send({ error: 'ride not found' });
     if (ride.finished_at == null) return reply.code(400).send({ error: 'cannot edit an in-progress ride' });
     const { end_soc_pct, started_at, finished_at, notes, trip_id } = req.body ?? {};
+    const body = req.body ?? {};
+    const windbreaker    = 'windbreaker'    in body ? (body.windbreaker    ?? null) : ride.windbreaker;
+    const overheatPack   = 'overheat_pack'  in body ? (body.overheat_pack  ?? null) : ride.overheat_pack;
+    const overheatMotor  = 'overheat_motor' in body ? (body.overheat_motor ?? null) : ride.overheat_motor;
+    const overheatLevel  = 'overheat_level' in body ? (body.overheat_level ?? null) : ride.overheat_level;
+    const sportyLevel    = 'sporty_level'   in body ? (body.sporty_level   ?? null) : ride.sporty_level;
 
     let tripForCalc = null;
     if (trip_id !== undefined) {
@@ -295,9 +315,18 @@ export default async function maevingRoutes(fastify) {
     }
     db.prepare(`
       UPDATE maeving_rides
-      SET started_at = ?, finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ?, notes = ?, trip_id = ?
+      SET started_at = ?, finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ?,
+          notes = ?, trip_id = ?,
+          windbreaker    = ?,
+          overheat_pack  = ?,
+          overheat_motor = ?,
+          overheat_level = ?,
+          sporty_level   = ?
       WHERE id = ?
-    `).run(newStartedAt, newFinishedAt, durationMin, newEndSoc, whPerMile, notes !== undefined ? notes : ride.notes, newTripId, ride.id);
+    `).run(newStartedAt, newFinishedAt, durationMin, newEndSoc, whPerMile,
+           notes !== undefined ? notes : ride.notes, newTripId,
+           windbreaker, overheatPack, overheatMotor, overheatLevel, sportyLevel,
+           ride.id);
     const updated = db.prepare(`
       SELECT r.*, t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r

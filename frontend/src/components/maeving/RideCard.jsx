@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getActiveRide, getLegs, getConfig, startRide, finishRide } from '../../api/maeving.js';
+import { getActiveRide, getLegs, getConfig, startRide, finishRide, updateRide } from '../../api/maeving.js';
 import { SOCRoller } from '../tesla/SOCRoller.jsx';
 import { isMobile } from '../../lib/isMobile.js';
 
@@ -19,11 +19,34 @@ export function RideCard() {
   const [selectedLegId, setSelectedLegId] = useState('');
   const [elapsed, setElapsed] = useState('0:00');
   const [starting, setStarting] = useState(false);
+  const [stopping, setStopping] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [error, setError] = useState('');
   const [startSoc, setStartSoc] = useState(50);
   const [endSoc, setEndSoc] = useState(50);
   const timerRef = useRef(null);
+
+  // Post-stop state
+  const [stopped, setStopped] = useState(false);
+  const [frozenElapsed, setFrozenElapsed] = useState('0:00');
+  const [windbreaker, setWindbreaker] = useState(false);
+  const [overheatOpen, setOverheatOpen] = useState(false);
+  const [sportyOpen, setSportyOpen] = useState(false);
+  const [overheatPack, setOverheatPack] = useState(true);
+  const [overheatMotor, setOverheatMotor] = useState(false);
+  const [overheatLevel, setOverheatLevel] = useState(2);
+  const [sportyLevel, setSportyLevel] = useState(null);
+
+  function resetMetadata() {
+    setStopped(false);
+    setWindbreaker(false);
+    setOverheatOpen(false);
+    setSportyOpen(false);
+    setOverheatPack(true);
+    setOverheatMotor(false);
+    setOverheatLevel(2);
+    setSportyLevel(null);
+  }
 
   useEffect(() => {
     if (!activeRide) {
@@ -81,15 +104,40 @@ export function RideCard() {
     }
   }
 
+  async function handleStop() {
+    if (!activeRide || stopping) return;
+    setStopping(true);
+    setError('');
+    try {
+      await finishRide(activeRide.id, { end_soc_pct: endSoc });
+      setFrozenElapsed(elapsed);
+      if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; }
+      setStopped(true);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setStopping(false);
+    }
+  }
+
   async function handleFinish() {
     if (!activeRide || finishing) return;
     setFinishing(true);
     setError('');
     try {
-      await finishRide(activeRide.id, { end_soc_pct: endSoc });
+      const payload = {};
+      payload.windbreaker = windbreaker ? 1 : null;
+      if (overheatOpen) {
+        payload.overheat_pack  = overheatPack  ? 1 : 0;
+        payload.overheat_motor = overheatMotor ? 1 : 0;
+        payload.overheat_level = overheatLevel;
+      }
+      if (sportyLevel !== null) payload.sporty_level = sportyLevel;
+      await updateRide(activeRide.id, payload);
       setActiveRide(null);
       setUiState('idle');
       setSelectedLegId('');
+      resetMetadata();
       getConfig().then((cfg) => {
         setStartSoc(cfg.prev_max_soc_pct ?? 50);
       }).catch(() => {});
@@ -104,7 +152,6 @@ export function RideCard() {
 
   // State C — active ride
   if (uiState === 'active' && activeRide) {
-    const mobile = isMobile();
     return (
       <div className="mx-auto w-full max-w-5xl">
         {error && (
@@ -115,40 +162,143 @@ export function RideCard() {
         <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
           <div className="mb-4 text-center">
             <p className="text-xl font-bold text-slate-100">{activeRide.trip_name}</p>
-            <p className="text-sm text-slate-400 mt-1">{elapsed} elapsed</p>
+            <p className="text-sm text-slate-400 mt-1">
+              {stopped ? frozenElapsed : elapsed} elapsed
+            </p>
           </div>
-          {mobile ? (
-            <div className="flex gap-2">
-              <div className="w-1/2 overflow-hidden">
-                <div className="scale-75 origin-top-left">
-                  <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
-                </div>
+
+          {!stopped ? (
+            <>
+              <div className="mb-3">
+                <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
               </div>
               <button
                 type="button"
-                onClick={handleFinish}
-                disabled={finishing}
-                className="w-1/2 min-h-[180px] flex flex-col items-center justify-center rounded-[2rem] bg-red-700 px-4 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
+                onClick={handleStop}
+                disabled={stopping}
+                className="flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
               >
                 <span className="text-xl font-bold">
-                  {finishing ? 'Finishing…' : 'Finish'}
+                  {stopping ? 'Stopping…' : 'Stop'}
                 </span>
               </button>
-            </div>
+            </>
           ) : (
             <>
               <button
                 type="button"
                 onClick={handleFinish}
                 disabled={finishing}
-                className="flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
+                className="flex min-h-[56px] w-full items-center justify-center rounded-[2rem] bg-red-700 px-6 py-4 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
               >
-                <span className="text-xl font-bold">
-                  {finishing ? 'Finishing…' : 'Finish Ride'}
+                <span className="text-lg font-bold">
+                  {finishing ? 'Finishing…' : 'Finish'}
                 </span>
               </button>
+
               <div className="mt-4">
-                <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
+                {/* Windbreaker */}
+                <label className="flex items-center gap-3 py-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={windbreaker}
+                    onChange={e => setWindbreaker(e.target.checked)}
+                    className="h-5 w-5 accent-blue-500"
+                  />
+                  <span className="text-sm text-slate-200">Windbreaker</span>
+                </label>
+
+                {/* Overheat + Sporty buttons */}
+                <div className="flex gap-3 mt-3">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (sportyOpen) setSportyOpen(false);
+                      setOverheatOpen(prev => !prev);
+                    }}
+                    className={`bg-orange-700 hover:bg-orange-600 text-white text-sm font-medium px-4 py-2 rounded-xl transition-colors${overheatOpen ? ' ring-1 ring-orange-500' : ''}`}
+                  >
+                    Overheat
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (overheatOpen) setOverheatOpen(false);
+                      setSportyOpen(prev => !prev);
+                    }}
+                    className={`text-sm font-medium px-4 py-2 rounded-xl transition-colors bg-slate-200 hover:bg-white text-slate-800${sportyOpen ? ' ring-1 ring-blue-400' : ''}`}
+                  >
+                    {sportyLevel !== null ? `Sporty (${sportyLevel})` : 'Sporty'}
+                  </button>
+                </div>
+
+                {/* Overheat expanded panel */}
+                {overheatOpen && (
+                  <div className="mt-3 flex flex-col gap-3">
+                    <div className="flex gap-4">
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={overheatPack}
+                          onChange={e => {
+                            if (!e.target.checked && !overheatMotor) return;
+                            setOverheatPack(e.target.checked);
+                          }}
+                          className="h-4 w-4 accent-orange-500"
+                        />
+                        <span className="text-sm text-slate-200">Pack</span>
+                      </label>
+                      <label className="flex items-center gap-2 cursor-pointer select-none">
+                        <input
+                          type="checkbox"
+                          checked={overheatMotor}
+                          onChange={e => {
+                            if (!e.target.checked && !overheatPack) return;
+                            setOverheatMotor(e.target.checked);
+                          }}
+                          className="h-4 w-4 accent-orange-500"
+                        />
+                        <span className="text-sm text-slate-200">Motor</span>
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      {[1, 2, 3].map(level => (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => setOverheatLevel(level)}
+                          className={`px-3 py-1 rounded-full text-sm transition-colors${
+                            overheatLevel === level
+                              ? ' bg-orange-600 text-white'
+                              : ' border border-slate-600 text-slate-400'
+                          }`}
+                        >
+                          {level}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                {/* Sporty expanded panel */}
+                {sportyOpen && (
+                  <div className="mt-3 flex gap-2">
+                    {[1, 2, 3].map(level => (
+                      <button
+                        key={level}
+                        type="button"
+                        onClick={() => setSportyLevel(level)}
+                        className={`px-3 py-1 rounded-full text-sm transition-colors${
+                          sportyLevel === level
+                            ? ' bg-blue-600 text-white'
+                            : ' border border-slate-600 text-slate-400'
+                        }`}
+                      >
+                        {level}
+                      </button>
+                    ))}
+                  </div>
+                )}
               </div>
             </>
           )}

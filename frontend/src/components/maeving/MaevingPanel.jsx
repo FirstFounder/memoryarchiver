@@ -493,9 +493,14 @@ export function MaevingPanel() {
   function startEditRide(ride) {
     setEditRideId(ride.id);
     setEditRideForm({
-      trip_id: ride.trip_id ?? '',
-      end_soc_pct: ride.end_soc_pct ?? '',
-      notes: ride.notes ?? '',
+      trip_id:        ride.trip_id ?? '',
+      end_soc_pct:    ride.end_soc_pct ?? '',
+      notes:          ride.notes ?? '',
+      windbreaker:    ride.windbreaker ?? null,
+      overheat_pack:  ride.overheat_pack ?? null,
+      overheat_motor: ride.overheat_motor ?? null,
+      overheat_level: ride.overheat_level ?? null,
+      sporty_level:   ride.sporty_level ?? null,
     });
     setRideEditError('');
     setDeleteRideConfirmId(null);
@@ -507,6 +512,11 @@ export function MaevingPanel() {
     if (editRideForm.trip_id !== '') payload.trip_id = Number(editRideForm.trip_id);
     if (editRideForm.end_soc_pct !== '') payload.end_soc_pct = Number(editRideForm.end_soc_pct);
     if (editRideForm.notes !== undefined) payload.notes = editRideForm.notes;
+    payload.windbreaker    = editRideForm.windbreaker    !== '' ? editRideForm.windbreaker    : null;
+    payload.overheat_pack  = editRideForm.overheat_pack  !== '' ? editRideForm.overheat_pack  : null;
+    payload.overheat_motor = editRideForm.overheat_motor !== '' ? editRideForm.overheat_motor : null;
+    payload.overheat_level = editRideForm.overheat_level !== '' ? editRideForm.overheat_level : null;
+    payload.sporty_level   = editRideForm.sporty_level   !== '' ? editRideForm.sporty_level   : null;
     try {
       await updateRide(id, payload);
       setEditRideId(null);
@@ -1546,6 +1556,88 @@ export function MaevingPanel() {
                           Cancel
                         </button>
                       </div>
+
+                      {/* Metadata fields */}
+                      <div className="mt-3 flex flex-wrap gap-4 items-start">
+                        {/* Windbreaker */}
+                        <label className="flex items-center gap-2 cursor-pointer select-none">
+                          <input
+                            type="checkbox"
+                            checked={editRideForm.windbreaker === 1}
+                            onChange={e => setEditRideForm(f => ({ ...f, windbreaker: e.target.checked ? 1 : null }))}
+                            className="h-4 w-4 accent-blue-500"
+                          />
+                          <span className="text-xs text-slate-400">Windbreaker</span>
+                        </label>
+
+                        {/* Overheat */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-slate-500">Overheat</span>
+                          {editRideForm.overheat_pack === null && editRideForm.overheat_motor === null && editRideForm.overheat_level === null ? (
+                            <button
+                              type="button"
+                              onClick={() => setEditRideForm(f => ({ ...f, overheat_pack: 1, overheat_motor: 0, overheat_level: 2 }))}
+                              className="rounded-xl border border-[color:var(--color-border)] px-3 py-1 text-xs text-slate-400 hover:border-slate-500"
+                            >
+                              + Add
+                            </button>
+                          ) : (
+                            <div className="flex flex-wrap items-center gap-2">
+                              <label className="flex items-center gap-1 cursor-pointer select-none text-xs text-slate-300">
+                                <input
+                                  type="checkbox"
+                                  checked={!!editRideForm.overheat_pack}
+                                  onChange={e => setEditRideForm(f => ({ ...f, overheat_pack: e.target.checked ? 1 : 0 }))}
+                                  className="h-3.5 w-3.5 accent-orange-500"
+                                />
+                                Pack
+                              </label>
+                              <label className="flex items-center gap-1 cursor-pointer select-none text-xs text-slate-300">
+                                <input
+                                  type="checkbox"
+                                  checked={!!editRideForm.overheat_motor}
+                                  onChange={e => setEditRideForm(f => ({ ...f, overheat_motor: e.target.checked ? 1 : 0 }))}
+                                  className="h-3.5 w-3.5 accent-orange-500"
+                                />
+                                Motor
+                              </label>
+                              <select
+                                className="rounded border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-1.5 py-1 text-xs text-slate-200"
+                                value={editRideForm.overheat_level ?? ''}
+                                onChange={e => setEditRideForm(f => ({ ...f, overheat_level: e.target.value ? Number(e.target.value) : null }))}
+                              >
+                                <option value="">—</option>
+                                <option value="1">1</option>
+                                <option value="2">2</option>
+                                <option value="3">3</option>
+                              </select>
+                              <button
+                                type="button"
+                                onClick={() => setEditRideForm(f => ({ ...f, overheat_pack: null, overheat_motor: null, overheat_level: null }))}
+                                className="text-xs text-slate-500 hover:text-slate-300"
+                              >
+                                ✕ Clear
+                              </button>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Sporty */}
+                        <div className="flex flex-col gap-1">
+                          <span className="text-xs text-slate-500">Sporty</span>
+                          <select
+                            className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-xs text-slate-200"
+                            value={editRideForm.sporty_level ?? ''}
+                            onChange={e => setEditRideForm(f => ({ ...f, sporty_level: e.target.value ? Number(e.target.value) : null }))}
+                          >
+                            <option value="">None</option>
+                            <option value="1">1</option>
+                            <option value="2">2</option>
+                            <option value="3">3</option>
+                          </select>
+                        </div>
+                      </div>
+
                       {rideEditError && <p className="mt-2 text-xs text-red-400">{rideEditError}</p>}
                     </div>
                   );
