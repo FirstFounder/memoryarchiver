@@ -6,7 +6,6 @@ import { setPlugState } from '../../lib/maevingControl.js';
 import {
   computeOvernightStart,
   getFallbackScheduledStartAt,
-  scheduleOvernightRetry,
 } from '../../lib/maevingScheduler.js';
 import {
   getConfig,
@@ -644,14 +643,9 @@ export default async function maevingRoutes(fastify) {
           WHERE id = ?
         `).run(fallback, deptTime, session.id);
 
-        scheduleOvernightRetry(
-          session.id,
-          session.soc_start_pct ?? 0,
-          session.soc_target_pct ?? 100,
-          deptTime,
+        return reply.send(
+          db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(session.id),
         );
-
-        return reply.send({ status: 'pending_prices', retry_after: '19:05' });
       }
       throw err;
     }
@@ -663,6 +657,17 @@ export default async function maevingRoutes(fastify) {
     if (!session) return reply.code(404).send({ error: 'not found' });
 
     const device = db.prepare('SELECT * FROM maeving_devices WHERE id = ?').get(session.device_id);
+
+    if (session.status === 'scheduled') {
+      try { await setPlugState(device.ip, false); } catch { /* ignore */ }
+      db.prepare(`
+        UPDATE maeving_sessions
+        SET status = 'complete', ended_at = ?, wh_delivered = 0, calibration_complete = 1
+        WHERE id = ?
+      `).run(new Date().toISOString(), session.id);
+      invalidateActiveSessionCache(session.device_id);
+      return reply.send(db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(session.id));
+    }
 
     try {
       await setPlugState(device.ip, false);

@@ -88,31 +88,6 @@ function formatTimeRange(startedAt, finishedAt) {
   return `${fmt(startedAt)}–${fmt(finishedAt)}`;
 }
 
-function msUntilCtTime(targetHour, targetMinute) {
-  const now = Date.now();
-  const ctDateStr = (d) =>
-    new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date(d));
-  for (let day = 0; day <= 1; day++) {
-    const base = now + day * 86_400_000;
-    const dateStr = ctDateStr(base);
-    for (const off of ['-06:00', '-05:00']) {
-      const iso = `${dateStr}T${String(targetHour).padStart(2, '0')}:${String(targetMinute).padStart(2, '0')}:00${off}`;
-      const candidate = new Date(iso);
-      const checkHour = Number(
-        new Intl.DateTimeFormat('en-US', {
-          timeZone: 'America/Chicago',
-          hour: '2-digit',
-          hour12: false,
-        }).format(candidate),
-      );
-      if (checkHour === targetHour && candidate.getTime() > now) {
-        return candidate.getTime() - now;
-      }
-    }
-  }
-  return null;
-}
-
 function computeLocalTripStats(legs, trips, config, socStart) {
   if (!config) return null;
   const validLegs = legs.filter((l) => l.trip_id !== '');
@@ -162,7 +137,6 @@ export function MaevingPanel() {
   const [legs, setLegs] = useState([{ trip_id: '', duration_min: '' }]);
   const [chargeMode, setChargeMode] = useState('now');
   const [departureTime, setDepartureTime] = useState('07:30');
-  const [pendingPrices, setPendingPrices] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [error, setError] = useState('');
@@ -194,8 +168,6 @@ export function MaevingPanel() {
   const noteDialogRef = useRef(null);
 
   const detailsIntervalRef = useRef(null);
-  const priceRetryRef = useRef(null);
-  const pendingSessionIdRef = useRef(null);
   const taperIntervalRef = useRef(null);
 
   const refresh = useCallback(async () => {
@@ -256,7 +228,7 @@ export function MaevingPanel() {
     if (siteKey && siteKey in SITE_DEFAULT_SOC) {
       setSocTarget(SITE_DEFAULT_SOC[siteKey]);
     }
-  }, [selectedId, devices]);
+  }, [selectedId, devices, activeSession?.id]);
 
   useEffect(() => {
     if (detailsIntervalRef.current) {
@@ -319,7 +291,6 @@ export function MaevingPanel() {
   // Clean up timers on unmount
   useEffect(() => {
     return () => {
-      if (priceRetryRef.current) clearTimeout(priceRetryRef.current);
       if (taperIntervalRef.current) clearInterval(taperIntervalRef.current);
     };
   }, []);
@@ -342,18 +313,12 @@ export function MaevingPanel() {
   function resetPlugInForm() {
     setChargeMode('now');
     setDepartureTime('07:30');
-    setPendingPrices(false);
     setError('');
     setLegs([{ trip_id: '', duration_min: '' }]);
     setLegRebelCosts({});
     setRebelCostStale(false);
     setPendingRides([]);
     setCheckedRideIds(new Set());
-    if (priceRetryRef.current) {
-      clearTimeout(priceRetryRef.current);
-      priceRetryRef.current = null;
-    }
-    pendingSessionIdRef.current = null;
   }
 
   function addLeg() {
@@ -458,28 +423,8 @@ export function MaevingPanel() {
       consumeCheckedRides();
       setActiveSessions((prev) => ({ ...prev, [selectedId]: session }));
 
-      const schedResult = await scheduleOvernight(session.id, { departure_time: departureTime });
-
-      if (schedResult.status === 'pending_prices') {
-        setPendingPrices(true);
-        pendingSessionIdRef.current = session.id;
-        const delay = msUntilCtTime(19, 6);
-        if (delay && delay > 0) {
-          priceRetryRef.current = setTimeout(async () => {
-            try {
-              const retry = await scheduleOvernight(session.id, {
-                departure_time: departureTime,
-              });
-              if (retry && retry.status !== 'pending_prices') {
-                setPendingPrices(false);
-                await refresh();
-              }
-            } catch { /* keep banner if retry fails */ }
-          }, delay);
-        }
-      } else {
-        await refresh();
-      }
+      await scheduleOvernight(session.id, { departure_time: departureTime });
+      await refresh();
 
       setChargeMode('now');
       setError('');
@@ -503,11 +448,6 @@ export function MaevingPanel() {
       });
       setSessionDetails(null);
       setTaperData(null);
-      setPendingPrices(false);
-      if (priceRetryRef.current) {
-        clearTimeout(priceRetryRef.current);
-        priceRetryRef.current = null;
-      }
       await refresh();
     } catch (err) {
       setError(err.message);
@@ -644,6 +584,9 @@ export function MaevingPanel() {
   const isScheduled = activeSession?.status === 'scheduled';
   const isCharging = activeSession?.status === 'active';
   const estCost = activeSession?.estimated_cost_dollars;
+  const showPendingPricesBanner =
+    activeSession?.status === 'scheduled' &&
+    activeSession?.price_window_avg_cents == null;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -880,7 +823,7 @@ export function MaevingPanel() {
                 </div>
               )}
 
-              {pendingPrices && (
+              {showPendingPricesBanner && (
                 <div className="rounded-2xl border border-sky-700/50 bg-sky-900/20 px-4 py-3 text-sm text-sky-300">
                   Day-ahead prices not yet published. Start time will be optimized at 7:05 PM CT. Fallback: 3:00 AM CT.
                 </div>

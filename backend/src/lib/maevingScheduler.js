@@ -63,18 +63,6 @@ function ctTimeToIso(ctDateStr, hour, minute = 0) {
   ).toISOString();
 }
 
-// Returns ms until the next occurrence of targetHour:targetMinute CT (must be in the future).
-function msUntilCtTime(targetHour, targetMinute = 0) {
-  const now = Date.now();
-  for (let day = 0; day <= 1; day++) {
-    const d = new Date(now + day * 86_400_000);
-    const dateStr = getCtDateStr(d);
-    const candidate = new Date(ctTimeToIso(dateStr, targetHour, targetMinute));
-    if (candidate.getTime() > now) return candidate.getTime() - now;
-  }
-  return null;
-}
-
 // Returns the ISO string for the next 03:00 CT that is still in the future.
 function fallbackScheduledStartAt() {
   const now = Date.now();
@@ -163,54 +151,6 @@ export async function computeOvernightStart(socStart, socTarget, departureTime) 
 // Exported so routes can get the fallback timestamp without importing the private helper.
 export function getFallbackScheduledStartAt() {
   return fallbackScheduledStartAt();
-}
-
-// Schedule a one-shot retry at 19:05 CT to re-derive the optimal start time.
-// If it is already past 19:05 CT, the retry is skipped (fallback remains).
-export function scheduleOvernightRetry(sessionId, socStart, socTarget, departureTime) {
-  const delay = msUntilCtTime(19, 5);
-  if (!delay || delay <= 0) {
-    schedulerLogger?.warn(
-      { sessionId },
-      'Maeving scheduler: 19:05 CT already passed — keeping 03:00 fallback for session %d',
-      sessionId,
-    );
-    return;
-  }
-
-  setTimeout(async () => {
-    schedulerLogger?.info(
-      { sessionId },
-      'Maeving scheduler: retrying overnight price computation for session %d',
-      sessionId,
-    );
-    try {
-      const result = await computeOvernightStart(socStart, socTarget, departureTime);
-      db.prepare(`
-        UPDATE maeving_sessions
-        SET scheduled_start_at     = ?,
-            estimated_cost_dollars = ?,
-            price_window_avg_cents = ?
-        WHERE id = ? AND status = 'scheduled'
-      `).run(
-        result.scheduledStartAt,
-        result.estimatedCostDollars,
-        result.priceWindowAvgCents,
-        sessionId,
-      );
-      schedulerLogger?.info(
-        { sessionId, scheduledStartAt: result.scheduledStartAt },
-        'Maeving scheduler: overnight retry succeeded for session %d',
-        sessionId,
-      );
-    } catch (err) {
-      schedulerLogger?.warn(
-        { sessionId, err: err.message },
-        'Maeving scheduler: overnight retry failed — keeping 03:00 CT fallback for session %d',
-        sessionId,
-      );
-    }
-  }, delay);
 }
 
 async function runScheduledSessions() {
@@ -456,6 +396,49 @@ async function runScheduledSessions() {
       `).run(completeSavingsDelta);
 
       invalidateActiveSessionCache(session.device_id);
+    }
+  }
+
+  // --- Overnight price optimization for sessions still on fallback ---
+  const unpricedSessions = db.prepare(`
+    SELECT s.*, d.ip
+    FROM maeving_sessions s
+    JOIN maeving_devices d ON d.id = s.device_id
+    WHERE s.status = 'scheduled'
+      AND s.price_window_avg_cents IS NULL
+      AND s.scheduled_start_at > ?
+  `).all(new Date().toISOString());
+  for (const session of unpricedSessions) {
+    try {
+      const result = await computeOvernightStart(
+        session.soc_start_pct ?? 0,
+        session.soc_target_pct ?? 100,
+        session.departure_time,
+      );
+      db.prepare(`
+        UPDATE maeving_sessions
+        SET scheduled_start_at     = ?,
+            estimated_cost_dollars = ?,
+            price_window_avg_cents = ?
+        WHERE id = ? AND status = 'scheduled'
+      `).run(
+        result.scheduledStartAt,
+        result.estimatedCostDollars,
+        result.priceWindowAvgCents,
+        session.id,
+      );
+      schedulerLogger?.info(
+        { sessionId: session.id, scheduledStartAt: result.scheduledStartAt },
+        'Maeving scheduler: overnight price optimized for session %d',
+        session.id,
+      );
+    } catch (err) {
+      // PRICES_PENDING or network error — keep fallback, try again next poll
+      schedulerLogger?.debug(
+        { sessionId: session.id, err: err.message },
+        'Maeving scheduler: prices not yet available for session %d — will retry',
+        session.id,
+      );
     }
   }
 }
