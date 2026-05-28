@@ -400,7 +400,7 @@ export default async function maevingRoutes(fastify) {
     const rideIds = [leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id, leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id];
     const rideDataByLeg = rideIds.map((rideId) => {
       if (!rideId) return null;
-      return db.prepare('SELECT start_soc_pct, end_soc_pct, wh_per_mile FROM maeving_rides WHERE id = ?').get(rideId) ?? null;
+      return db.prepare('SELECT start_soc_pct, end_soc_pct, wh_per_mile, started_at FROM maeving_rides WHERE id = ?').get(rideId) ?? null;
     });
 
     // Collect new wh_per_mile values from these rides
@@ -448,8 +448,10 @@ export default async function maevingRoutes(fastify) {
          leg_5_start_soc_pct, leg_5_end_soc_pct,
          leg_6_start_soc_pct, leg_6_end_soc_pct,
          leg_7_start_soc_pct, leg_7_end_soc_pct,
-         leg_8_start_soc_pct, leg_8_end_soc_pct)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         leg_8_start_soc_pct, leg_8_end_soc_pct,
+         leg_1_started_at, leg_2_started_at, leg_3_started_at, leg_4_started_at,
+         leg_5_started_at, leg_6_started_at, leg_7_started_at, leg_8_started_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       device_id,
       now,
@@ -510,6 +512,14 @@ export default async function maevingRoutes(fastify) {
       rideDataByLeg[6]?.end_soc_pct ?? null,
       rideDataByLeg[7]?.start_soc_pct ?? null,
       rideDataByLeg[7]?.end_soc_pct ?? null,
+      rideDataByLeg[0]?.started_at ?? null,
+      rideDataByLeg[1]?.started_at ?? null,
+      rideDataByLeg[2]?.started_at ?? null,
+      rideDataByLeg[3]?.started_at ?? null,
+      rideDataByLeg[4]?.started_at ?? null,
+      rideDataByLeg[5]?.started_at ?? null,
+      rideDataByLeg[6]?.started_at ?? null,
+      rideDataByLeg[7]?.started_at ?? null,
     );
 
     if (avgWhPerMile != null) {

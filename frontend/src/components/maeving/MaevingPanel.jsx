@@ -379,6 +379,7 @@ export function MaevingPanel() {
       slotIdx++;
       legData[`leg_${slotIdx}_trip_id`] = ride.trip_id;
       legData[`leg_${slotIdx}_ride_id`] = ride.id;
+      legData[`leg_${slotIdx}_started_at`] = ride.started_at;
       if (ride.duration_min != null) {
         legData[`leg_${slotIdx}_duration_min`] = Math.round(ride.duration_min);
       }
@@ -1390,6 +1391,7 @@ export function MaevingPanel() {
               tripId,
               trip,
               durationMin: session[`leg_${n}_duration_min`],
+              legStartedAt: session[`leg_${n}_started_at`],
               isLastLeg: n === legNums[legNums.length - 1],
             });
           }
@@ -1666,18 +1668,18 @@ export function MaevingPanel() {
 
               {/* Column header for completed trips */}
               {recentTripLegs.length > 0 && (
-                <div className="flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-slate-500">
-                  <span>Trip</span>
-                  <span>Date</span>
-                  <span>Trip Time</span>
-                  <span>Wh/mi</span>
-                  <span>Cost</span>
+                <div className="grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.2fr)] px-4 text-xs text-slate-500">
+                  <span className="flex items-center">Trip</span>
+                  <span className="flex items-center">Date</span>
+                  <span className="flex items-center">Trip Time</span>
+                  <span className="flex items-center">Wh/mi</span>
+                  <span className="flex items-center justify-end text-right">Cost</span>
                 </div>
               )}
 
               {/* Completed trip leg rows */}
               {recentTripLegs.map((row) => {
-                const { session, legNum, totalLegs, isMultiLeg, trip, durationMin, isLastLeg } = row;
+                const { session, legNum, totalLegs, isMultiLeg, trip, durationMin, legStartedAt, isLastLeg } = row;
                 const device = devices.find((d) => d.id === session.device_id);
                 const isLF = !!device?.cost_free;
                 const cellColor = isLF ? 'text-orange-300' : 'text-slate-300';
@@ -1687,12 +1689,20 @@ export function MaevingPanel() {
                 const legWhPerMile = session[`leg_${legNum}_wh_per_mile`] ?? null;
                 const legStartSoc = session[`leg_${legNum}_start_soc_pct`] ?? null;
                 const legEndSoc = session[`leg_${legNum}_end_soc_pct`] ?? null;
+                let lastLegColor = 'text-slate-300';
+                if (isLastLeg) {
+                  if (isLF) {
+                    lastLegColor = 'text-emerald-400';
+                  } else if (session.hourly_savings_dollars != null) {
+                    lastLegColor = session.hourly_savings_dollars > 0 ? 'text-emerald-400' : 'text-red-400';
+                  }
+                }
                 return (
                   <div
                     key={`${session.id}-${legNum}`}
-                    className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm ${isLF ? 'bg-orange-950/30 border-orange-800/40' : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]'}`}
+                    className={`grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.2fr)] rounded-2xl border px-4 py-3 text-sm ${isLF ? 'bg-orange-950/30 border-orange-800/40' : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]'}`}
                   >
-                    <span className={`font-semibold ${cellColor}`}>
+                    <span className={`flex items-center ${isLastLeg ? `font-semibold ${lastLegColor}` : `font-semibold italic ${cellColor}`}`}>
                       {tripName}
                       {isMultiLeg && (
                         <span className="ml-1.5 text-xs font-normal text-slate-500">
@@ -1700,9 +1710,9 @@ export function MaevingPanel() {
                         </span>
                       )}
                     </span>
-                    <span className={dateCellColor}>{formatDate(session.started_at)}</span>
-                    <span className={timeCellColor}>{formatMinutes(durationMin)}</span>
-                    <span className="text-slate-500 text-xs">
+                    <span className={`flex items-center ${dateCellColor}`}>{formatDate(legStartedAt ?? session.started_at)}</span>
+                    <span className={`flex items-center ${timeCellColor}`}>{formatMinutes(durationMin)}</span>
+                    <span className="flex items-center text-slate-500 text-xs">
                       {legWhPerMile != null ? (
                         <>
                           {legStartSoc != null && legEndSoc != null && (
@@ -1714,71 +1724,69 @@ export function MaevingPanel() {
                         </>
                       ) : null}
                     </span>
-                    {isLastLeg ? (
-                      device?.cost_free ? (
-                        session.lf_equivalent_cost_dollars != null ? (
+                    <span className="flex items-start justify-end text-right">
+                      {isLastLeg ? (
+                        device?.cost_free ? (
+                          session.lf_equivalent_cost_dollars != null ? (
+                            <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                              <span className="text-green-400">
+                                vs Hourly: ${session.lf_equivalent_cost_dollars.toFixed(2)}
+                              </span>
+                              {session.lf_equivalent_fixed_dollars != null && (
+                                <span className="text-amber-400">
+                                  vs Fixed: ${session.lf_equivalent_fixed_dollars.toFixed(2)}
+                                </span>
+                              )}
+                              {session.rebel_cost_total != null && (
+                                <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                                  vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
+                                </span>
+                              )}
+                            </span>
+                          ) : (
+                            <span className="text-slate-400">$0.00</span>
+                          )
+                        ) : session.rebel_cost_total != null && session.actual_cost_dollars != null ? (
                           <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
                             <span className="text-green-400">
-                              vs Hourly: ${session.lf_equivalent_cost_dollars.toFixed(2)}
+                              Hourly: ${session.actual_cost_dollars.toFixed(2)}
                             </span>
-                            {session.lf_equivalent_fixed_dollars != null && (
+                            {session.fixed_rate_cost_dollars != null && (
                               <span className="text-amber-400">
-                                vs Fixed: ${session.lf_equivalent_fixed_dollars.toFixed(2)}
+                                Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
                               </span>
                             )}
-                            {session.rebel_cost_total != null && (
-                              <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
-                                vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
-                              </span>
-                            )}
+                            <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                              vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
+                            </span>
                           </span>
-                        ) : (
-                          <span className="text-slate-400">$0.00</span>
-                        )
-                      ) : session.rebel_cost_total != null && session.actual_cost_dollars != null ? (
-                        <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
-                          <span className="text-green-400">
-                            Hourly: ${session.actual_cost_dollars.toFixed(2)}
-                          </span>
-                          {session.fixed_rate_cost_dollars != null && (
-                            <span className="text-amber-400">
+                        ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
+                          <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                            <span className="text-slate-400">
+                              Hourly: ${session.actual_cost_dollars.toFixed(2)}
+                            </span>
+                            <span className="text-slate-500">
                               Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
                             </span>
-                          )}
-                          <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
-                            vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
+                            <span
+                              className={
+                                (session.hourly_savings_dollars ?? 0) > 0
+                                  ? 'text-emerald-400'
+                                  : 'text-red-400'
+                              }
+                            >
+                              {(session.hourly_savings_dollars ?? 0) > 0
+                                ? `Saved: $${(session.hourly_savings_dollars).toFixed(2)}`
+                                : `Penalized: $${Math.abs(session.hourly_savings_dollars ?? 0).toFixed(2)}`}
+                            </span>
                           </span>
-                        </span>
-                      ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
-                        <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                        ) : session.actual_cost_dollars != null ? (
                           <span className="text-slate-400">
-                            Hourly: ${session.actual_cost_dollars.toFixed(2)}
+                            ${session.actual_cost_dollars.toFixed(2)}
                           </span>
-                          <span className="text-slate-500">
-                            Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
-                          </span>
-                          <span
-                            className={
-                              (session.hourly_savings_dollars ?? 0) > 0
-                                ? 'text-emerald-400'
-                                : 'text-red-400'
-                            }
-                          >
-                            {(session.hourly_savings_dollars ?? 0) > 0
-                              ? `Saved: $${(session.hourly_savings_dollars).toFixed(2)}`
-                              : `Penalized: $${Math.abs(session.hourly_savings_dollars ?? 0).toFixed(2)}`}
-                          </span>
-                        </span>
-                      ) : session.actual_cost_dollars != null ? (
-                        <span className="text-slate-400">
-                          ${session.actual_cost_dollars.toFixed(2)}
-                        </span>
-                      ) : (
-                        <span className="text-slate-400">—</span>
-                      )
-                    ) : (
-                      <span className="text-slate-400">—</span>
-                    )}
+                        ) : null
+                      ) : null}
+                    </span>
                   </div>
                 );
               })}
