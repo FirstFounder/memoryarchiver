@@ -168,21 +168,28 @@ export function RideCard() {
           </div>
 
           {!stopped ? (
-            <>
-              <div className="mb-3">
-                <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
-              </div>
-              <button
-                type="button"
-                onClick={handleStop}
-                disabled={stopping}
-                className="flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors hover:bg-red-600 disabled:opacity-60"
-              >
-                <span className="text-xl font-bold">
-                  {stopping ? 'Stopping…' : 'Stop'}
-                </span>
-              </button>
-            </>
+            (() => {
+              const socValid = endSoc < (activeRide.start_soc_pct ?? 101);
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={handleStop}
+                    disabled={stopping || !socValid}
+                    className={`flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors ${
+                      stopping ? 'opacity-60' : socValid ? 'opacity-100 hover:bg-red-600' : 'opacity-40 cursor-not-allowed'
+                    }`}
+                  >
+                    <span className="text-xl font-bold">
+                      {stopping ? 'Stopping…' : 'Stop'}
+                    </span>
+                  </button>
+                  <div className="mt-3">
+                    <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
+                  </div>
+                </>
+              );
+            })()
           ) : (
             <>
               <button
@@ -196,9 +203,12 @@ export function RideCard() {
                 </span>
               </button>
 
-              <div className="mt-4">
+              <div className="mt-5">
                 {/* Windbreaker */}
-                <label className="flex items-center gap-3 py-2 cursor-pointer select-none">
+                <label
+                  onClick={e => e.stopPropagation()}
+                  className="flex items-center gap-3 py-2 cursor-pointer select-none"
+                >
                   <input
                     type="checkbox"
                     checked={windbreaker}
@@ -226,7 +236,8 @@ export function RideCard() {
                       if (overheatOpen) setOverheatOpen(false);
                       setSportyOpen(prev => !prev);
                     }}
-                    className={`text-sm font-medium px-4 py-2 rounded-xl transition-colors bg-slate-200 hover:bg-white text-slate-800${sportyOpen ? ' ring-1 ring-blue-400' : ''}`}
+                    style={{ color: 'var(--color-accent)' }}
+                    className={`text-sm font-medium px-4 py-2 rounded-xl transition-colors bg-slate-200 hover:bg-white${sportyOpen ? ' ring-1 ring-blue-400' : ''}`}
                   >
                     {sportyLevel !== null ? `Sporty (${sportyLevel})` : 'Sporty'}
                   </button>
