@@ -1866,7 +1866,7 @@ export function MaevingPanel() {
                     <tr className="text-left text-xs text-slate-500">
                       <th className="pb-2 pr-4">Date</th>
                       <th className="pb-2 pr-4">SOC delta</th>
-                      <th className="pb-2 pr-4">Observed Wh</th>
+                      <th className="pb-2 pr-4">Implied Capacity</th>
                       <th className="pb-2 pr-4">Pack estimate</th>
                       <th className="pb-2">Change</th>
                     </tr>

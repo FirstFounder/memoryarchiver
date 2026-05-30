@@ -556,13 +556,16 @@ export default async function maevingRoutes(fastify) {
 
     invalidateActiveSessionCache(device_id);
 
-    const baselineState = getDeviceState(device_id);
-    if (baselineState) {
-      db.prepare(`
-        INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
-        VALUES (?, ?, ?, ?, ?)
-      `).run(device_id, baselineState.apower ?? 0, baselineState.current ?? 0,
-             baselineState.voltage ?? 0, baselineState.aenergy_total ?? 0);
+    // Write baseline reading only for Charge Now — overnight baseline is written at activation
+    if (mode === 'now') {
+      const baselineState = getDeviceState(device_id);
+      if (baselineState) {
+        db.prepare(`
+          INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(device_id, baselineState.apower ?? 0, baselineState.current ?? 0,
+               baselineState.voltage ?? 0, baselineState.aenergy_total ?? 0);
+      }
     }
 
     if (mode === 'now') {

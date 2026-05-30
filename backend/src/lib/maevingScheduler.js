@@ -180,6 +180,39 @@ async function runScheduledSessions() {
       SET status = 'active', started_at = ?
       WHERE id = ?
     `).run(activatedAt, session.id);
+
+    // Write baseline reading at actual plug-on time so readingsStats has an anchored first value
+    try {
+      const liveStatus = await getPlugStatus(session.ip);
+      const baselineAenergy = liveStatus?.aenergy?.total ?? null;
+      const baselineApower = liveStatus?.apower ?? 0;
+      const baselineCurrent = liveStatus?.current ?? 0;
+      const baselineVoltage = liveStatus?.voltage ?? 0;
+      if (baselineAenergy !== null) {
+        db.prepare(`
+          INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
+          VALUES (?, ?, ?, ?, ?)
+        `).run(session.device_id, baselineApower, baselineCurrent, baselineVoltage, baselineAenergy);
+        schedulerLogger?.info(
+          { sessionId: session.id, baselineAenergy },
+          'Maeving scheduler: baseline reading written for session %d at activation',
+          session.id,
+        );
+      } else {
+        schedulerLogger?.warn(
+          { sessionId: session.id },
+          'Maeving scheduler: could not write baseline reading for session %d — aenergy null',
+          session.id,
+        );
+      }
+    } catch (err) {
+      schedulerLogger?.warn(
+        { err, sessionId: session.id },
+        'Maeving scheduler: failed to write baseline reading for session %d',
+        session.id,
+      );
+    }
+
     if (session.soc_target_pct === 100) {
       schedulerLogger?.info(
         { sessionId: session.id },
