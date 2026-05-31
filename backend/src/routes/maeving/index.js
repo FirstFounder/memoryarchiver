@@ -923,6 +923,51 @@ export default async function maevingRoutes(fastify) {
     });
   });
 
+  // DELETE /api/maeving/calibration/:index
+  fastify.delete('/api/maeving/calibration/:index', async (req, reply) => {
+    const idx = parseInt(req.params.index, 10);
+    if (!Number.isInteger(idx) || idx < 0) return reply.code(400).send({ error: 'invalid index' });
+
+    const cfg = db.prepare(
+      'SELECT capacity_history_json FROM maeving_config WHERE id = 1',
+    ).get();
+    const entries = JSON.parse(cfg?.capacity_history_json || '[]');
+
+    if (idx >= entries.length) return reply.code(400).send({ error: 'index out of bounds' });
+
+    const removed = entries[idx];
+    const remaining = entries.filter((_, i) => i !== idx);
+
+    let newCapacity, newCount, newJson;
+    if (remaining.length === 0) {
+      newCapacity = 5760;
+      newCount = 0;
+      newJson = '[]';
+    } else {
+      let ema = remaining[0].observed_wh;
+      for (let i = 1; i < remaining.length; i++) {
+        ema = 0.15 * remaining[i].observed_wh + 0.85 * ema;
+      }
+      newCapacity = Math.round(ema);
+      newCount = remaining.length;
+      newJson = JSON.stringify(remaining);
+    }
+
+    db.prepare(`
+      UPDATE maeving_config
+      SET capacity_history_json = ?, effective_capacity_wh = ?, observation_count = ?
+      WHERE id = 1
+    `).run(newJson, newCapacity, newCount);
+
+    if (removed.session_id) {
+      db.prepare(
+        'UPDATE maeving_sessions SET calibration_complete = 0 WHERE id = ?',
+      ).run(removed.session_id);
+    }
+
+    return reply.send({ ok: true, effective_capacity_wh: newCapacity, observation_count: newCount });
+  });
+
   // GET /api/maeving/sessions/:id/taper
   fastify.get('/api/maeving/sessions/:id/taper', async (req, reply) => {
     const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(req.params.id);

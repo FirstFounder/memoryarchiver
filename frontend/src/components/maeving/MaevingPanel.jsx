@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   calibrateSession,
+  deleteCalibrationEntry,
   deleteRide,
   finishRide,
   getConfig,
@@ -146,6 +147,7 @@ export function MaevingPanel() {
   const [skipping, setSkipping] = useState(false);
   const [taperData, setTaperData] = useState(null);
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
+  const [confirmDeleteCalIdx, setConfirmDeleteCalIdx] = useState(null);
   const [legRebelCosts, setLegRebelCosts] = useState({});
   const [rebelCostStale, setRebelCostStale] = useState(false);
   // Prestaged rides (plug-in form)
@@ -566,6 +568,20 @@ export function MaevingPanel() {
       await refresh();
     } catch (err) {
       setAddRideError(err.message);
+    }
+  }
+
+  // ── Calibration history delete ───────────────────────────────────────────────
+
+  async function handleDeleteCalEntry(displayIdx) {
+    const offset = (config.observation_count ?? 0) - (config.capacityHistory?.length ?? 0);
+    const actualIdx = offset + displayIdx;
+    try {
+      await deleteCalibrationEntry(actualIdx);
+      setConfirmDeleteCalIdx(null);
+      await refresh();
+    } catch (err) {
+      console.error('Failed to delete calibration entry', err);
     }
   }
 
@@ -1886,7 +1902,8 @@ export function MaevingPanel() {
                       <th className="pb-2 pr-4">SOC delta</th>
                       <th className="pb-2 pr-4">Implied Capacity</th>
                       <th className="pb-2 pr-4">Pack estimate</th>
-                      <th className="pb-2">Change</th>
+                      <th className="pb-2 pr-4">Change</th>
+                      <th className="pb-2" />
                     </tr>
                   </thead>
                   <tbody>
@@ -1908,12 +1925,34 @@ export function MaevingPanel() {
                             {Math.round(entry.new_capacity).toLocaleString()} Wh
                           </td>
                           <td
-                            className={`py-2 ${
+                            className={`py-2 pr-4 ${
                               change >= 0 ? 'text-emerald-400' : 'text-red-400'
                             }`}
                           >
                             {change >= 0 ? '+' : ''}
                             {Math.round(change)} Wh
+                          </td>
+                          <td className="py-2 text-right">
+                            {confirmDeleteCalIdx === i ? (
+                              <span className="flex items-center justify-end gap-1 text-xs">
+                                <button
+                                  onClick={() => setConfirmDeleteCalIdx(null)}
+                                  className="text-gray-400 hover:text-white px-2 py-0.5 rounded"
+                                >✕</button>
+                                <button
+                                  onClick={() => handleDeleteCalEntry(i)}
+                                  className="bg-red-700 hover:bg-red-600 text-white px-2 py-0.5 rounded"
+                                >Delete</button>
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => setConfirmDeleteCalIdx(i)}
+                                className="text-gray-500 hover:text-red-400 transition-colors p-1"
+                                title="Remove this calibration entry"
+                              >
+                                🗑
+                              </button>
+                            )}
                           </td>
                         </tr>
                       );

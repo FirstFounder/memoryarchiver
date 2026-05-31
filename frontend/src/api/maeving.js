@@ -149,3 +149,9 @@ export async function getRebelCost(miles) {
   if (!res.ok) throw new Error(await res.text());
   return res.json();
 }
+
+export async function deleteCalibrationEntry(index) {
+  const res = await fetch(`/api/maeving/calibration/${index}`, { method: 'DELETE' });
+  if (!res.ok) throw new Error('Delete failed');
+  return res.json();
+}
