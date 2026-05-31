@@ -162,3 +162,12 @@ export function filterOvernightPrices(prices, windowStartHour, targetHour) {
 
   return collectNightWindow(sorted, tomorrowKey, windowStartHour, targetHour);
 }
+// Retained for Tesla charge scheduler compatibility — these use undocumented
+// ComEd endpoints. Maeving scheduler uses fetchAndCacheDayAheadPrices() instead.
+export async function fetchDayAheadPrices() {
+  return fetchPrices('https://hourlypricing.comed.com/api?type=daynexthouraverage&format=json');
+}
+
+export async function fetchActualPrices() {
+  return fetchPrices('https://hourlypricing.comed.com/api?type=dayaheadhouraverage&format=json');
+}
