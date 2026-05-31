@@ -2,6 +2,7 @@ import mqtt from 'mqtt';
 import config from '../config.js';
 import db from '../db/client.js';
 import { setPlugState } from './maevingControl.js';
+import { fetchRideWeather } from './weatherFetch.js';
 
 export const CHARGE_COMPLETE_WATTS = 20;
 export const CHARGE_COMPLETE_CONSECUTIVE = 3;
@@ -18,6 +19,11 @@ const activeSessionCache = {};     // deviceId → session | null (absent = not 
 
 let client = null;
 
+// OwnTracks — active ride tracking
+let activeRideId = null;          // integer | null
+let activeRideStartedAt = null;   // ISO string | null — used to bound the ride window
+const OWNTRACKS_TOPIC = 'owntracks/jeff/Caveat_OwnTracks';
+
 export function getDeviceState(deviceId) {
   return deviceState[deviceId] ?? null;
 }
@@ -28,6 +34,20 @@ export function getAllDeviceStates() {
 
 export function invalidateActiveSessionCache(deviceId) {
   delete activeSessionCache[deviceId];
+}
+
+export function notifyRideStarted(rideId, startedAt) {
+  activeRideId = rideId;
+  activeRideStartedAt = startedAt;
+}
+
+export function notifyRideFinished() {
+  activeRideId = null;
+  activeRideStartedAt = null;
+}
+
+export function getActiveRideId() {
+  return activeRideId;
 }
 
 export function sessionReadingsStats(deviceId, startedAt) {
@@ -79,6 +99,21 @@ export function startMaevingMqtt(logger) {
       });
     }
 
+    client.subscribe(OWNTRACKS_TOPIC, (err) => {
+      if (err) logger.error({ err }, 'Maeving MQTT: failed to subscribe to OwnTracks topic');
+      else logger.info('Maeving MQTT: subscribed to %s', OWNTRACKS_TOPIC);
+    });
+
+    // Resume ride tracking if one was in progress when the server restarted.
+    const inProgressRide = db.prepare(
+      'SELECT id, started_at FROM maeving_rides WHERE finished_at IS NULL LIMIT 1'
+    ).get();
+    if (inProgressRide) {
+      activeRideId = inProgressRide.id;
+      activeRideStartedAt = inProgressRide.started_at;
+      logger.info('Maeving MQTT: resuming OwnTracks capture for ride %d', inProgressRide.id);
+    }
+
     for (const device of devices) {
       const activeSession = db.prepare(
         "SELECT id FROM maeving_sessions WHERE device_id = ? AND status IN ('active', 'scheduled')"
@@ -92,6 +127,73 @@ export function startMaevingMqtt(logger) {
   });
 
   client.on('message', (topic, message) => {
+    // ─── OwnTracks location handler ─────────────────────────────────────────────
+    if (topic === OWNTRACKS_TOPIC) {
+      if (!activeRideId) return; // not tracking — ignore
+      let payload;
+      try {
+        payload = JSON.parse(message.toString());
+      } catch {
+        return;
+      }
+      if (payload._type !== 'location') return; // ignore lwt, transition, etc.
+      const { lat, lon, acc, alt, vel, cog, batt, bs, conn, m: otMode, tst } = payload;
+      // Quality filters
+      if (otMode === 1) return;           // Significant mode — coarse data
+      if (conn === 'w') return;           // WiFi — stationary at home, not riding
+      if (!lat || !lon) return;
+      if (acc != null && acc > 150) return; // >150m accuracy — useless for routing
+      const motion = Array.isArray(payload.motionactivities) && payload.motionactivities.length
+        ? payload.motionactivities[0]
+        : null;
+      const capturedRideId = activeRideId;
+      fetchRideWeather(lat, lon)
+        .then(weather => {
+          try {
+            db.prepare(`
+              INSERT INTO owntracks_locations
+                (ride_id, tst, lat, lon, alt, acc, vel, cog, batt, bs, conn, motion, ot_mode,
+                 temp_f, wind_speed_mph, wind_dir_deg)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            `).run(
+              capturedRideId,
+              tst ?? Math.floor(Date.now() / 1000),
+              lat, lon,
+              alt ?? null, acc ?? null, vel ?? null, cog ?? null,
+              batt ?? null, bs ?? null, conn ?? null, motion ?? null,
+              otMode ?? null,
+              weather?.temp_f ?? null,
+              weather?.wind_speed_mph ?? null,
+              weather?.wind_dir_deg ?? null,
+            );
+          } catch (err) {
+            logger.error({ err }, 'Maeving MQTT: failed to insert OwnTracks ping for ride %d', capturedRideId);
+          }
+        })
+        .catch(() => {
+          // Weather fetch failed — insert without weather data
+          try {
+            db.prepare(`
+              INSERT INTO owntracks_locations
+                (ride_id, tst, lat, lon, alt, acc, vel, cog, batt, bs, conn, motion, ot_mode,
+                 temp_f, wind_speed_mph, wind_dir_deg)
+              VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL)
+            `).run(
+              capturedRideId,
+              tst ?? Math.floor(Date.now() / 1000),
+              lat, lon,
+              alt ?? null, acc ?? null, vel ?? null, cog ?? null,
+              batt ?? null, bs ?? null, conn ?? null, motion ?? null,
+              otMode ?? null,
+            );
+          } catch (dbErr) {
+            logger.error({ dbErr }, 'Maeving MQTT: fallback insert failed for ride %d', capturedRideId);
+          }
+        });
+      return; // do not fall through to Shelly device logic
+    }
+    // ─── End OwnTracks handler ───────────────────────────────────────────────────
+
     const device = topicToDevice[topic];
     if (!device) return;
 

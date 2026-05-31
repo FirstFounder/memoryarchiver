@@ -69,3 +69,27 @@ export async function fetchOvernightLow(lat, lon, windowStartHour, targetHour) {
     return 35;
   }
 }
+
+export async function fetchRideWeather(lat, lon) {
+  try {
+    const url = new URL('https://api.open-meteo.com/v1/forecast');
+    url.searchParams.set('latitude', String(lat));
+    url.searchParams.set('longitude', String(lon));
+    url.searchParams.set('current', 'temperature_2m,windspeed_10m,winddirection_10m');
+    url.searchParams.set('temperature_unit', 'fahrenheit');
+    url.searchParams.set('windspeed_unit', 'mph');
+    url.searchParams.set('timezone', 'auto');
+    const response = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const current = data?.current;
+    if (!current) return null;
+    return {
+      temp_f:          current.temperature_2m       ?? null,
+      wind_speed_mph:  current.windspeed_10m         ?? null,
+      wind_dir_deg:    current.winddirection_10m     ?? null,
+    };
+  } catch {
+    return null;
+  }
+}

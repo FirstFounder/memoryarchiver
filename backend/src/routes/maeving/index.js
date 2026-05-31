@@ -1,6 +1,6 @@
 import config from '../../config.js';
 import db from '../../db/client.js';
-import { getAllDeviceStates, getDeviceState, invalidateActiveSessionCache } from '../../lib/maevingMqtt.js';
+import { getAllDeviceStates, getDeviceState, invalidateActiveSessionCache, notifyRideStarted, notifyRideFinished, getActiveRideId } from '../../lib/maevingMqtt.js';
 import { fetchCurrentHourPrice } from '../../lib/coMedPrices.js';
 import { setPlugState } from '../../lib/maevingControl.js';
 import {
@@ -177,6 +177,8 @@ export default async function maevingRoutes(fastify) {
       VALUES (?, ?, NULL, NULL, ?)
     `).run(trip_id, startedAt, start_soc_pct ?? null);
 
+    notifyRideStarted(result.lastInsertRowid, startedAt);
+
     return reply.code(201).send({
       id: result.lastInsertRowid,
       trip_id: trip.id,
@@ -230,6 +232,8 @@ export default async function maevingRoutes(fastify) {
     `).run(finishedAt, durationMin, end_soc_pct, whPerMile,
            windbreaker ?? null, overheat_pack ?? null, overheat_motor ?? null, overheat_level ?? null, sporty_level ?? null,
            ride.id);
+
+    notifyRideFinished();
 
     db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(end_soc_pct);
 
@@ -334,6 +338,45 @@ export default async function maevingRoutes(fastify) {
       WHERE r.id = ?
     `).get(ride.id);
     return reply.send(updated);
+  });
+
+  // ── Ride telemetry ────────────────────────────────────────────────────────────
+
+  fastify.get('/api/maeving/rides/live-telemetry', async (_req, reply) => {
+    const rideId = getActiveRideId();
+    if (!rideId) return reply.send(null);
+    const ping = db.prepare(`
+      SELECT * FROM owntracks_locations
+      WHERE ride_id = ?
+      ORDER BY tst DESC
+      LIMIT 1
+    `).get(rideId);
+    if (!ping) return reply.send(null);
+    const ride = db.prepare(
+      'SELECT id, started_at, start_soc_pct, trip_id FROM maeving_rides WHERE id = ?'
+    ).get(rideId);
+    const config = db.prepare('SELECT avg_wh_per_mile FROM maeving_config WHERE id = 1').get();
+    const pingCount = db.prepare(
+      'SELECT COUNT(*) AS n FROM owntracks_locations WHERE ride_id = ?'
+    ).get(rideId)?.n ?? 0;
+    return reply.send({
+      ping,
+      ride_id: rideId,
+      ping_count: pingCount,
+      start_soc_pct: ride?.start_soc_pct ?? null,
+      avg_wh_per_mile: config?.avg_wh_per_mile ?? null,
+    });
+  });
+
+  fastify.get('/api/maeving/rides/:id/telemetry', async (req, reply) => {
+    const ride = db.prepare('SELECT id FROM maeving_rides WHERE id = ?').get(req.params.id);
+    if (!ride) return reply.code(404).send({ error: 'ride not found' });
+    const pings = db.prepare(`
+      SELECT * FROM owntracks_locations
+      WHERE ride_id = ?
+      ORDER BY tst ASC
+    `).all(ride.id);
+    return reply.send(pings);
   });
 
   // ── Rebel cost ────────────────────────────────────────────────────────────────

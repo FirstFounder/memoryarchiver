@@ -121,7 +121,7 @@ function getSessionRowClass(session, device) {
 }
 
 
-const SITE_DEFAULT_SOC = { BG: 40, MH: 84, LF: 100 };
+const SITE_DEFAULT_SOC = { BG: 40, MH: 84, LF: 95 };
 
 export function MaevingPanel() {
   const [devices, setDevices] = useState([]);
@@ -938,7 +938,7 @@ export function MaevingPanel() {
                 <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
                   <SOCRoller
                     min={0}
-                    max={100}
+                    max={95}
                     value={socStart}
                     onChange={setSocStart}
                     label="Current SOC"
@@ -947,7 +947,7 @@ export function MaevingPanel() {
                 <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
                   <SOCRoller
                     min={20}
-                    max={100}
+                    max={95}
                     value={socTarget}
                     onChange={setSocTarget}
                     label="Target SOC"

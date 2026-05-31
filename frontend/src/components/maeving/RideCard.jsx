@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { getActiveRide, getLegs, getConfig, startRide, finishRide, updateRide } from '../../api/maeving.js';
+import { getActiveRide, getLegs, getConfig, startRide, finishRide, updateRide, getActiveRideLiveTelemetry } from '../../api/maeving.js';
 import { SOCRoller } from '../tesla/SOCRoller.jsx';
 import { isMobile } from '../../lib/isMobile.js';
+
+function windDirLabel(deg) {
+  const dirs = ['N', 'NE', 'E', 'SE', 'S', 'SW', 'W', 'NW'];
+  return dirs[Math.round(((deg % 360) + 360) / 45) % 8];
+}
 
 function getElapsed(startedAt) {
   const ms = Date.now() - new Date(startedAt).getTime();
@@ -25,6 +30,8 @@ export function RideCard() {
   const [startSoc, setStartSoc] = useState(50);
   const [endSoc, setEndSoc] = useState(50);
   const timerRef = useRef(null);
+
+  const [telemetry, setTelemetry] = useState(null);
 
   // Post-stop state
   const [stopped, setStopped] = useState(false);
@@ -74,6 +81,19 @@ export function RideCard() {
       }
     } catch { /* silent */ }
   }, []);
+
+  useEffect(() => {
+    if (uiState !== 'active' || isMobile()) return;
+    async function pollTelemetry() {
+      try {
+        const data = await getActiveRideLiveTelemetry();
+        setTelemetry(data);
+      } catch { /* silent */ }
+    }
+    pollTelemetry();
+    const interval = setInterval(pollTelemetry, 15_000);
+    return () => clearInterval(interval);
+  }, [uiState]);
 
   useEffect(() => {
     getLegs().then(setLegs).catch(() => {});
@@ -152,6 +172,7 @@ export function RideCard() {
 
   // State C — active ride
   if (uiState === 'active' && activeRide) {
+    const mobile = isMobile();
     return (
       <div className="mx-auto w-full max-w-5xl">
         {error && (
@@ -159,14 +180,122 @@ export function RideCard() {
             {error}
           </div>
         )}
-        <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
-          <div className="mb-4 text-center">
+
+        {/* ── Desktop live dashboard ─────────────────────────────────── */}
+        {!mobile && (
+          <section className="mb-3 rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5">
+            <div className="mb-4 flex items-center justify-between">
+              <p className="text-lg font-bold text-slate-100">{activeRide.trip_name}</p>
+              <p className="text-sm text-slate-400">{stopped ? frozenElapsed : elapsed} elapsed</p>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              {/* Left column: telemetry stats */}
+              <div className="flex flex-col gap-3">
+                <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
+                  <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Speed</p>
+                  <p className="text-2xl font-bold text-slate-100">
+                    {telemetry?.ping?.vel != null
+                      ? `${Math.round(telemetry.ping.vel)} km/h`
+                      : '—'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
+                  <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Elevation</p>
+                  <p className="text-2xl font-bold text-slate-100">
+                    {telemetry?.ping?.alt != null
+                      ? `${Math.round(telemetry.ping.alt)} m`
+                      : '—'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
+                  <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Est. SOC</p>
+                  <p className="text-2xl font-bold text-slate-100">
+                    {(() => {
+                      const startSocPct = telemetry?.start_soc_pct;
+                      const avgWhMi = telemetry?.avg_wh_per_mile;
+                      const distMi = activeRide?.trip_miles;
+                      if (startSocPct == null || avgWhMi == null || !avgWhMi || !distMi) return '—';
+                      const pingCount = telemetry?.ping_count ?? 0;
+                      if (pingCount < 3) return '—';
+                      const effectiveCapWh = 2880;
+                      const whForLeg = distMi * avgWhMi;
+                      const socDrop = (whForLeg / effectiveCapWh) * 100;
+                      const estEndSoc = Math.max(0, startSocPct - socDrop);
+                      return `~${Math.round(estEndSoc)}%`;
+                    })()}
+                  </p>
+                  <p className="text-xs text-slate-500 mt-1">at leg end</p>
+                </div>
+                <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
+                  <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Pings</p>
+                  <p className="text-2xl font-bold text-slate-100">
+                    {telemetry?.ping_count ?? '—'}
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
+                  <p className="text-xs uppercase tracking-widest text-slate-500 mb-1">Weather</p>
+                  {telemetry?.ping?.temp_f != null ? (
+                    <div className="flex flex-col gap-1">
+                      <p className="text-xl font-bold text-slate-100">
+                        {Math.round(telemetry.ping.temp_f)}°F
+                      </p>
+                      {telemetry.ping.wind_speed_mph != null && (
+                        <p className="text-sm text-slate-300">
+                          {Math.round(telemetry.ping.wind_speed_mph)} mph
+                          {telemetry.ping.wind_dir_deg != null &&
+                            ` ${windDirLabel(telemetry.ping.wind_dir_deg)}`}
+                        </p>
+                      )}
+                    </div>
+                  ) : (
+                    <p className="text-2xl font-bold text-slate-100">—</p>
+                  )}
+                </div>
+              </div>
+              {/* Right column: map */}
+              <div className="flex flex-col gap-3">
+                {telemetry?.ping?.lat != null ? (
+                  <>
+                    <div className="overflow-hidden rounded-2xl border border-[color:var(--color-border)]" style={{ height: '340px' }}>
+                      <iframe
+                        key={`${telemetry.ping.lat.toFixed(4)},${telemetry.ping.lon.toFixed(4)}`}
+                        title="Current location"
+                        src={`https://www.openstreetmap.org/export/embed.html?bbox=${(telemetry.ping.lon - 0.005).toFixed(6)},${(telemetry.ping.lat - 0.003).toFixed(6)},${(telemetry.ping.lon + 0.005).toFixed(6)},${(telemetry.ping.lat + 0.003).toFixed(6)}&layer=mapnik&marker=${telemetry.ping.lat.toFixed(6)},${telemetry.ping.lon.toFixed(6)}`}
+                        style={{ border: 'none', width: '100%', height: '100%' }}
+                        loading="lazy"
+                      />
+                    </div>
+                    <a
+                      href={`https://www.openstreetmap.org/?mlat=${telemetry.ping.lat}&mlon=${telemetry.ping.lon}#map=15/${telemetry.ping.lat}/${telemetry.ping.lon}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="text-center text-xs text-slate-500 hover:text-slate-300 transition-colors"
+                    >
+                      Open in OpenStreetMap ↗
+                    </a>
+                  </>
+                ) : (
+                  <div className="flex h-full min-h-[200px] items-center justify-center rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]">
+                    <p className="text-sm text-slate-500">Awaiting location ping…</p>
+                  </div>
+                )}
+              </div>
+            </div>
+          </section>
+        )}
+
+        {/* ── Mobile header (State C, mobile only) ──────────────────── */}
+        {mobile && (
+          <div className="mb-3 text-center">
             <p className="text-xl font-bold text-slate-100">{activeRide.trip_name}</p>
             <p className="text-sm text-slate-400 mt-1">
               {stopped ? frozenElapsed : elapsed} elapsed
             </p>
           </div>
+        )}
 
+        {/* ── Stop / Finish controls (both mobile and desktop) ──────── */}
+        <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
           {!stopped ? (
             (() => {
               const socValid = endSoc < (activeRide.start_soc_pct ?? 101);
@@ -185,7 +314,7 @@ export function RideCard() {
                     </span>
                   </button>
                   <div className="mt-3">
-                    <SOCRoller min={0} max={100} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
+                    <SOCRoller min={0} max={95} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
                   </div>
                 </>
               );
@@ -202,7 +331,6 @@ export function RideCard() {
                   {finishing ? 'Finishing…' : 'Finish'}
                 </span>
               </button>
-
               <div className="mt-5">
                 {/* Windbreaker */}
                 <label
@@ -217,7 +345,6 @@ export function RideCard() {
                   />
                   <span className="text-sm text-slate-200">Windbreaker</span>
                 </label>
-
                 {/* Overheat + Sporty buttons */}
                 <div className="flex gap-3 mt-3">
                   <button
@@ -242,8 +369,6 @@ export function RideCard() {
                     {sportyLevel !== null ? `Sporty (${sportyLevel})` : 'Sporty'}
                   </button>
                 </div>
-
-                {/* Overheat expanded panel */}
                 {overheatOpen && (
                   <div className="mt-3 flex flex-col gap-3">
                     <div className="flex gap-4">
@@ -290,8 +415,6 @@ export function RideCard() {
                     </div>
                   </div>
                 )}
-
-                {/* Sporty expanded panel */}
                 {sportyOpen && (
                   <div className="mt-3 flex gap-2">
                     {[1, 2, 3].map(level => (
@@ -346,7 +469,7 @@ export function RideCard() {
             <div className="mt-2 flex gap-2">
               <div className="w-1/3 overflow-hidden">
                 <div className="scale-75 origin-top-left">
-                  <SOCRoller min={0} max={100} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
+                  <SOCRoller min={0} max={95} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
                 </div>
               </div>
               <button
@@ -393,7 +516,7 @@ export function RideCard() {
                 </button>
               </div>
               <div className="mt-4">
-                <SOCRoller min={0} max={100} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
+                <SOCRoller min={0} max={95} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
               </div>
             </>
           )}

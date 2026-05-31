@@ -44,6 +44,10 @@ export async function getActiveRide() {
   return apiFetch('/api/maeving/rides/active');
 }
 
+export async function getActiveRideLiveTelemetry() {
+  return apiFetch('/api/maeving/rides/live-telemetry');
+}
+
 export async function getPendingRides() {
   return apiFetch('/api/maeving/rides/pending');
 }
