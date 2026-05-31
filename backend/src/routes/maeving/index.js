@@ -915,11 +915,23 @@ export default async function maevingRoutes(fastify) {
     const cfg = getConfig();
     const pending = hasPendingCalibration();
     const history = JSON.parse(cfg.capacity_history_json || '[]');
+    const totals = db.prepare(`
+      SELECT
+        COALESCE(SUM(s.wh_delivered), 0)        AS total_wh_added,
+        COALESCE(SUM(s.actual_cost_dollars), 0)  AS total_money_spent
+      FROM maeving_sessions s
+      JOIN maeving_devices d ON d.id = s.device_id
+      WHERE s.status IN ('complete', 'charger_complete')
+        AND d.cost_free = 0
+        AND s.wh_delivered IS NOT NULL
+    `).get();
     return reply.send({
       ...cfg,
       hasPendingCalibration: pending !== null,
       pendingSession: pending,
       capacityHistory: history.slice(-10),
+      total_wh_added: totals.total_wh_added,
+      total_money_spent: totals.total_money_spent,
     });
   });
 
