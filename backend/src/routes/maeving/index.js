@@ -959,12 +959,6 @@ export default async function maevingRoutes(fastify) {
       WHERE id = 1
     `).run(newJson, newCapacity, newCount);
 
-    if (removed.session_id) {
-      db.prepare(
-        'UPDATE maeving_sessions SET calibration_complete = 0 WHERE id = ?',
-      ).run(removed.session_id);
-    }
-
     return reply.send({ ok: true, effective_capacity_wh: newCapacity, observation_count: newCount });
   });
 
