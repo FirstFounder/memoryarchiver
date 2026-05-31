@@ -5,7 +5,14 @@ const CACHE_TTL_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 const RETRY_DELAY_MS = 6 * 60 * 60 * 1000;     // 6 hours
 const MAX_ATTEMPTS = 3;
 
-const EIA_SERIES = 'EMM_EPMRU_PTE_SIL_DPG';
+// EIA v2 data endpoint — Midwest (PADD 2) Regular All Formulations Retail Gasoline.
+// Illinois is not tracked as a standalone geography in this dataset; PADD 2 is the
+// appropriate Midwest regional average. Product EPMR, process PTE (retail sales).
+const EIA_URL =
+  'https://api.eia.gov/v2/petroleum/pri/gnd/data/' +
+  '?frequency=weekly&data[]=value' +
+  '&facets[duoarea][]=R20&facets[product][]=EPMR&facets[process][]=PTE' +
+  '&sort[0][column]=period&sort[0][direction]=desc&length=1';
 
 function getCached() {
   return db.prepare('SELECT eia_gas_price_dollars, eia_gas_price_fetched_at FROM maeving_config WHERE id = 1').get();
@@ -29,16 +36,14 @@ async function attemptFetch() {
   const key = process.env.EIA_API_KEY;
   if (!key) throw new Error('EIA_API_KEY not set');
 
-  const url =
-    `https://api.eia.gov/v2/seriesid/${EIA_SERIES}` +
-    `?api_key=${key}&data[]=value&sort[0][column]=period&sort[0][direction]=desc&length=1`;
-
-  const res = await fetch(url);
+  const res = await fetch(`${EIA_URL}&api_key=${key}`);
   if (!res.ok) throw new Error(`EIA API returned ${res.status}`);
 
   const json = await res.json();
-  const price = json?.response?.data?.[0]?.value;
-  if (typeof price !== 'number') throw new Error('Unexpected EIA response shape');
+  const raw = json?.response?.data?.[0]?.value;
+  // EIA v2 returns value as a string; coerce to number.
+  const price = typeof raw === 'number' ? raw : parseFloat(raw);
+  if (!isFinite(price)) throw new Error('Unexpected EIA response shape');
   return price;
 }
 
