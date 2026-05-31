@@ -809,6 +809,15 @@ export default async function maevingRoutes(fastify) {
       hourlySavingsDollars = 0;
     }
 
+    const cfg = getConfig();
+    let estimatedSocAtStop = null;
+    if (stats.wh_delivered != null && cfg.effective_capacity_wh > 0 && session.soc_start_pct != null) {
+      estimatedSocAtStop = Math.min(
+        100,
+        session.soc_start_pct + (stats.wh_delivered / cfg.effective_capacity_wh) * 100,
+      );
+    }
+
     db.prepare(`
       UPDATE maeving_sessions
       SET ended_at               = ?,
@@ -821,7 +830,8 @@ export default async function maevingRoutes(fastify) {
           fixed_rate_cost_dollars = COALESCE(?, fixed_rate_cost_dollars),
           hourly_savings_dollars  = COALESCE(?, hourly_savings_dollars),
           lf_equivalent_cost_dollars = ?,
-          lf_equivalent_fixed_dollars = ?
+          lf_equivalent_fixed_dollars = ?,
+          estimated_soc_at_stop  = COALESCE(?, estimated_soc_at_stop)
       WHERE id = ?
     `).run(
       now,
@@ -834,6 +844,7 @@ export default async function maevingRoutes(fastify) {
       hourlySavingsDollars,
       lfEquivalentCost,
       lfEquivalentFixed,
+      estimatedSocAtStop,
       session.id,
     );
 
@@ -849,7 +860,6 @@ export default async function maevingRoutes(fastify) {
     if (session.soc_target_pct === 100) {
       recordSessionComplete(session.id);
     } else {
-      const cfg = getConfig();
       if (cfg.calibration_mode === 0) {
         recordSessionComplete(session.id);
       }

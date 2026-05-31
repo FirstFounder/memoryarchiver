@@ -213,7 +213,11 @@ export function MaevingPanel() {
   // Update calibrateSOC default when pending calibration changes
   useEffect(() => {
     if (pendingCalibration) {
-      setCalibrateSOC(pendingCalibration.soc_target_pct ?? 100);
+      const initSoc =
+        pendingCalibration.estimated_soc_at_stop != null
+          ? Math.round(pendingCalibration.estimated_soc_at_stop)
+          : (pendingCalibration.soc_target_pct ?? 100);
+      setCalibrateSOC(Math.min(100, Math.max(1, initSoc)));
       setCalibrationResult(null);
     }
   }, [pendingCalibration?.id]);
