@@ -1,6 +1,6 @@
 import db from '../db/client.js';
 import { getPlugStatus, setPlugState } from './maevingControl.js';
-import { fetchDayAheadPrices, fetchActualPrices, filterOvernightPrices, fetchCurrentHourPrice } from './coMedPrices.js';
+import { fetchAndCacheDayAheadPrices, getCachedPricesForDate, filterOvernightPrices, fetchCurrentHourPrice } from './coMedPrices.js';
 import { sessionReadingsStats, invalidateActiveSessionCache, CHARGE_COMPLETE_WATTS, CHARGE_COMPLETE_CONSECUTIVE } from './maevingMqtt.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
@@ -11,6 +11,9 @@ const completionCounters = {}; // { [sessionId]: number }
 
 let pollingInterval = null;
 let schedulerLogger = null;
+let lastDayAheadFetchDate = null;
+let lastDayAheadRetryTick = -1;
+let dayAheadFetchTickCount = 0;
 
 function getComedBaseRateCents() {
   const month = new Date().getMonth() + 1; // 1-12
@@ -92,45 +95,39 @@ function findCheapestWindow(prices, windowLength) {
 }
 
 // Compute the optimal overnight start time and cost estimate.
-// Throws { code: 'PRICES_PENDING' } if prices are not yet available or it is before 19:00 CT.
+// Throws { code: 'PRICES_PENDING' } if the cache has no data for the relevant window.
 export async function computeOvernightStart(socStart, socTarget, departureTime) {
   const kwhNeeded = Math.max(0, ((socTarget - socStart) / 100) * MAEVING_BATTERY_KWH);
   const requiredHours = Math.max(1, Math.ceil(kwhNeeded / MAEVING_CHARGE_RATE_KW));
   const targetHour = departureTime ? parseInt(departureTime.split(':')[0], 10) : 7;
 
-  let prices;
-  try {
-    const [todayPrices, tomorrowPrices] = await Promise.allSettled([
-      fetchActualPrices(),
-      fetchDayAheadPrices(),
-    ]);
-    const combined = [
-      ...(todayPrices.status === 'fulfilled' ? todayPrices.value : []),
-      ...(tomorrowPrices.status === 'fulfilled' ? tomorrowPrices.value : []),
-    ];
-    // Deduplicate by millisUTC
-    const seen = new Set();
-    prices = combined.filter(e => {
-      if (seen.has(e.millisUTC)) return false;
-      seen.add(e.millisUTC);
-      return true;
-    });
-    if (!prices.length) {
-      const err = new Error('Day-ahead prices unavailable');
-      err.code = 'PRICES_PENDING';
-      throw err;
-    }
-  } catch (err) {
-    if (err.code === 'PRICES_PENDING') throw err;
-    const e = new Error('Day-ahead prices unavailable');
-    e.code = 'PRICES_PENDING';
-    throw e;
+  const tomorrowMs = Date.now() + 86_400_000;
+  const tomorrowKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago',
+  }).format(new Date(tomorrowMs));
+  const todayKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago',
+  }).format(new Date());
+
+  const tomorrowPrices = getCachedPricesForDate(tomorrowKey) ?? [];
+  const todayPrices    = getCachedPricesForDate(todayKey) ?? [];
+  const seen = new Set();
+  const prices = [...todayPrices, ...tomorrowPrices].filter(e => {
+    if (seen.has(e.millisUTC)) return false;
+    seen.add(e.millisUTC);
+    return true;
+  });
+
+  if (!prices.length) {
+    const err = new Error('Day-ahead prices not yet cached');
+    err.code = 'PRICES_PENDING';
+    throw err;
   }
 
   const overnightPrices = filterOvernightPrices(prices, OVERNIGHT_WINDOW_START_HOUR, targetHour);
 
   if (!overnightPrices.length) {
-    const err = new Error('No overnight price data in response');
+    const err = new Error('No overnight price data in cache');
     err.code = 'PRICES_PENDING';
     throw err;
   }
@@ -154,6 +151,35 @@ export function getFallbackScheduledStartAt() {
 }
 
 async function runScheduledSessions() {
+  // --- Daily day-ahead price fetch (5 PM CT, retry every 15 min until 9 PM CT) ---
+  dayAheadFetchTickCount += 1;
+  const ctHour = getCurrentCtHour();
+  const tomorrowFetchKey = new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'America/Chicago',
+  }).format(new Date(Date.now() + 86_400_000));
+  const alreadyFetchedToday = lastDayAheadFetchDate === tomorrowFetchKey;
+  const inFetchWindow = ctHour >= 17 && ctHour < 21;
+  const ticksSinceLastRetry = dayAheadFetchTickCount - lastDayAheadRetryTick;
+  // 15 ticks × 60s = 900s = 15 minutes
+  const retryDue = ticksSinceLastRetry >= 15 || lastDayAheadRetryTick === -1;
+  if (!alreadyFetchedToday && inFetchWindow && retryDue) {
+    lastDayAheadRetryTick = dayAheadFetchTickCount;
+    try {
+      await fetchAndCacheDayAheadPrices();
+      lastDayAheadFetchDate = tomorrowFetchKey;
+      schedulerLogger?.info(
+        { date: tomorrowFetchKey },
+        'Maeving scheduler: day-ahead prices cached for %s',
+        tomorrowFetchKey,
+      );
+    } catch (err) {
+      schedulerLogger?.warn(
+        { err, date: tomorrowFetchKey, ctHour },
+        'Maeving scheduler: day-ahead price fetch failed — will retry in 15 min',
+      );
+    }
+  }
+
   const now = new Date().toISOString();
   const sessions = db
     .prepare(

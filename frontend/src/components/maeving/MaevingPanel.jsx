@@ -597,6 +597,15 @@ export function MaevingPanel() {
   const showPendingPricesBanner =
     activeSession?.status === 'scheduled' &&
     activeSession?.price_window_avg_cents == null;
+  const ctHourNow = Number(
+    new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago',
+      hour: '2-digit',
+      hour12: false,
+    }).format(new Date())
+  );
+  const showPriceFailureBanner = showPendingPricesBanner && ctHourNow >= 21;
+  const showPricePendingBanner = showPendingPricesBanner && ctHourNow < 21;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -833,9 +842,14 @@ export function MaevingPanel() {
                 </div>
               )}
 
-              {showPendingPricesBanner && (
-                <div className="rounded-2xl border border-sky-700/50 bg-sky-900/20 px-4 py-3 text-sm text-sky-300">
-                  Day-ahead prices not yet published. Start time will be optimized at 7:05 PM CT. Fallback: 3:00 AM CT.
+              {showPricePendingBanner && (
+                <div className="rounded-2xl border border-blue-800/60 bg-blue-950/40 px-4 py-3 text-sm text-blue-300">
+                  Day-ahead prices not yet published. Start time will be optimized at 5:00 PM CT. Fallback: 3:00 AM CT.
+                </div>
+              )}
+              {showPriceFailureBanner && (
+                <div className="rounded-2xl border border-amber-800/60 bg-amber-950/40 px-4 py-3 text-sm text-amber-300">
+                  Day-ahead price lookup failed. Charge will run at 3:00 AM CT.
                 </div>
               )}
 
@@ -1258,7 +1272,7 @@ export function MaevingPanel() {
                     {formatEnergy(session.wh_delivered)}
                   </span>
                   <span className="text-slate-500">
-                    {session.soc_start_pct ?? '—'}% → {session.soc_target_pct ?? '—'}%
+                    {session.soc_start_pct ?? '—'}% → {session.actual_soc_pct ?? session.soc_target_pct ?? '—'}%
                   </span>
                   <span className="text-slate-500">
                     {formatChargeTime(session.started_at, session.ended_at)}
