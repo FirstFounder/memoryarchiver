@@ -149,6 +149,7 @@ export function MaevingPanel() {
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
   const [confirmDeleteCalIdx, setConfirmDeleteCalIdx] = useState(null);
   const [legRebelCosts, setLegRebelCosts] = useState({});
+  const [checkedRebelCosts, setCheckedRebelCosts] = useState({});
   const [rebelCostStale, setRebelCostStale] = useState(false);
   // Prestaged rides (plug-in form)
   const [pendingRides, setPendingRides] = useState([]);
@@ -322,6 +323,7 @@ export function MaevingPanel() {
     setError('');
     setLegs([{ trip_id: '', duration_min: '' }]);
     setLegRebelCosts({});
+    setCheckedRebelCosts({});
     setRebelCostStale(false);
     setPendingRides([]);
     setCheckedRideIds(new Set());
@@ -342,8 +344,23 @@ export function MaevingPanel() {
   function toggleRideCheck(id) {
     setCheckedRideIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(id)) {
+        next.delete(id);
+        setCheckedRebelCosts((prev) => {
+          const n = { ...prev };
+          delete n[id];
+          return n;
+        });
+      } else {
+        next.add(id);
+        const ride = pendingRides.find((r) => r.id === id);
+        if (ride?.trip_miles) {
+          getRebelCost(ride.trip_miles).then((result) => {
+            setCheckedRebelCosts((prev) => ({ ...prev, [id]: result }));
+            if (result.stale) setRebelCostStale(true);
+          }).catch(() => {});
+        }
+      }
       return next;
     });
   }
@@ -365,6 +382,8 @@ export function MaevingPanel() {
       if (ride.duration_min != null) {
         legData[`leg_${slotIdx}_duration_min`] = Math.round(ride.duration_min);
       }
+      const rc = checkedRebelCosts[ride.id];
+      if (rc?.cost != null) legData[`leg_${slotIdx}_rebel_cost`] = rc.cost;
     }
 
     legs.forEach((leg, i) => {
@@ -376,7 +395,11 @@ export function MaevingPanel() {
       if (rc?.cost != null) legData[`leg_${slotIdx}_rebel_cost`] = rc.cost;
     });
 
-    const total = Object.values(legRebelCosts).reduce(
+    const allRebelCosts = [
+      ...Object.values(checkedRebelCosts),
+      ...Object.values(legRebelCosts),
+    ];
+    const total = allRebelCosts.reduce(
       (sum, rc) => (rc?.cost != null ? sum + rc.cost : sum), 0,
     );
     if (total > 0) legData.rebel_cost_total = total;
@@ -1146,12 +1169,25 @@ export function MaevingPanel() {
               )}
 
               {/* Rebel 250 cost comparison */}
-              {Object.keys(legRebelCosts).length > 0 && (
+              {(Object.keys(legRebelCosts).length > 0 || Object.keys(checkedRebelCosts).length > 0) && (
                 <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
                   <div className="flex flex-wrap items-center gap-5 text-sm">
                     <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
                       vs Rebel 250
                     </span>
+                    {pendingRides
+                      .filter((r) => checkedRideIds.has(r.id))
+                      .sort((a, b) => new Date(a.started_at) - new Date(b.started_at))
+                      .map((ride) => {
+                        const rc = checkedRebelCosts[ride.id];
+                        if (!rc?.cost) return null;
+                        return (
+                          <div key={ride.id} className="flex justify-between text-xs text-slate-400">
+                            <span>{ride.trip_name}</span>
+                            <span>${rc.cost.toFixed(2)}</span>
+                          </div>
+                        );
+                      })}
                     {legs.map((leg, i) => {
                       const rc = legRebelCosts[i];
                       if (!leg.trip_id || !rc || rc.cost == null) return null;
@@ -1165,9 +1201,13 @@ export function MaevingPanel() {
                       );
                     })}
                     {(() => {
-                      const entries = Object.values(legRebelCosts).filter((rc) => rc?.cost != null);
-                      if (entries.length < 2) return null;
-                      const total = entries.reduce((s, rc) => s + rc.cost, 0);
+                      const allRebelCosts = [
+                        ...Object.values(checkedRebelCosts),
+                        ...Object.values(legRebelCosts),
+                      ];
+                      const validEntries = allRebelCosts.filter((rc) => rc?.cost != null);
+                      if (validEntries.length < 2) return null;
+                      const total = validEntries.reduce((s, rc) => s + rc.cost, 0);
                       return (
                         <span className="text-slate-400">
                           Total:{' '}

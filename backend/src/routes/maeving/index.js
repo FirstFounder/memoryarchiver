@@ -16,7 +16,7 @@ import {
   recordSessionComplete,
   skipCalibration,
 } from '../../lib/maevingCalibration.js';
-import { computeRebelCost } from '../../lib/eiaGasPrice.js';
+import { computeRebelCost, fetchGasPrice } from '../../lib/eiaGasPrice.js';
 
 function getComedBaseRateCents() {
   const month = new Date().getMonth() + 1; // 1-12
@@ -409,6 +409,56 @@ export default async function maevingRoutes(fastify) {
       ...session,
       readings_summary: readingsStats(session.device_id, session.started_at),
     });
+  });
+
+  fastify.post('/api/maeving/sessions/backfill-rebel-costs', async (_req, reply) => {
+    const { price, stale } = await fetchGasPrice();
+    if (price == null) {
+      return reply.code(400).send({ error: 'EIA price unavailable — cannot backfill' });
+    }
+
+    const sessions = db.prepare(`
+      SELECT id,
+        leg_1_trip_id, leg_2_trip_id, leg_3_trip_id, leg_4_trip_id,
+        leg_5_trip_id, leg_6_trip_id, leg_7_trip_id, leg_8_trip_id
+      FROM maeving_sessions
+      WHERE status = 'complete'
+        AND rebel_cost_total IS NULL
+        AND leg_1_trip_id IS NOT NULL
+    `).all();
+
+    const REBEL_MPG = 61.6;
+    let updated = 0;
+
+    const updateStmt = db.prepare(`
+      UPDATE maeving_sessions
+      SET rebel_cost_total = ?, rebel_cost_stale = ?
+      WHERE id = ?
+    `);
+
+    const runAll = db.transaction(() => {
+      for (const session of sessions) {
+        const legTripIds = [1, 2, 3, 4, 5, 6, 7, 8]
+          .map((n) => session[`leg_${n}_trip_id`])
+          .filter(Boolean);
+
+        let totalMiles = 0;
+        for (const tripId of legTripIds) {
+          const trip = db.prepare('SELECT distance_miles FROM maeving_trips WHERE id = ?').get(tripId);
+          if (trip?.distance_miles) totalMiles += trip.distance_miles;
+        }
+
+        if (totalMiles <= 0) continue;
+
+        const rebelCost = (totalMiles / REBEL_MPG) * price;
+        updateStmt.run(rebelCost, stale ? 1 : 0, session.id);
+        updated++;
+      }
+    });
+
+    runAll();
+
+    return reply.send({ updated, price, stale });
   });
 
   fastify.post('/api/maeving/sessions', async (req, reply) => {
