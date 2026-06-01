@@ -1,19 +1,23 @@
 import db from '../db/client.js';
 import { getPlugStatus, setPlugState } from './maevingControl.js';
-import { fetchAndCacheDayAheadPrices, getCachedPricesForDate, filterOvernightPrices, fetchCurrentHourPrice } from './coMedPrices.js';
+import { fetchCurrentHourPrice } from './coMedPrices.js';
 import { sessionReadingsStats, invalidateActiveSessionCache, CHARGE_COMPLETE_WATTS, CHARGE_COMPLETE_CONSECUTIVE } from './maevingMqtt.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
 const MAEVING_BATTERY_KWH = 2.88;
-const OVERNIGHT_WINDOW_START_HOUR = 21;
 
 const completionCounters = {}; // { [sessionId]: number }
 
+// Tracks whether the 2 AM auto-probe has already fired today for each device.
+// Key: device id (integer). Value: CT date string 'YYYY-MM-DD' of last probe.
+const lastProbeDateByDevice = {};
+
+// Devices currently in the evaluate phase of the probe (plug is on, waiting to read).
+// Key: device id. Value: timestamp (ms) when plug was turned on.
+const probeActiveSince = {};
+
 let pollingInterval = null;
 let schedulerLogger = null;
-let lastDayAheadFetchDate = null;
-let lastDayAheadRetryTick = -1;
-let dayAheadFetchTickCount = 0;
 
 function getComedBaseRateCents() {
   const month = new Date().getMonth() + 1; // 1-12
@@ -66,82 +70,41 @@ function ctTimeToIso(ctDateStr, hour, minute = 0) {
   ).toISOString();
 }
 
-// Returns the ISO string for the next 03:00 CT that is still in the future.
+// Returns the ISO string for the next 02:00 CT that is still in the future.
 function fallbackScheduledStartAt() {
   const now = Date.now();
   for (let day = 0; day <= 1; day++) {
     const d = new Date(now + day * 86_400_000);
     const dateStr = getCtDateStr(d);
-    const candidate = new Date(ctTimeToIso(dateStr, 3, 0));
+    const candidate = new Date(ctTimeToIso(dateStr, 2, 0));
     if (candidate.getTime() > now) return candidate.toISOString();
   }
-  // Safety net: 24 h from now
   return new Date(now + 86_400_000).toISOString();
 }
 
-function findCheapestWindow(prices, windowLength) {
-  const n = prices.length;
-  if (!n) return null;
-  const len = Math.min(windowLength, n);
-  let best = null;
-  for (let i = 0; i <= n - len; i++) {
-    const slice = prices.slice(i, i + len);
-    const avg = slice.reduce((s, e) => s + e.price, 0) / len;
-    if (!best || avg < best.avgPriceCents) {
-      best = { entries: slice, avgPriceCents: avg };
-    }
+// Returns the next 02:00 CT that is still in the future.
+function getFixed2AmStart() {
+  const now = Date.now();
+  for (let day = 0; day <= 1; day++) {
+    const d = new Date(now + day * 86_400_000);
+    const dateStr = getCtDateStr(d);
+    const candidate = new Date(ctTimeToIso(dateStr, 2, 0));
+    if (candidate.getTime() > now) return candidate.toISOString();
   }
-  return best;
+  return new Date(now + 86_400_000).toISOString();
 }
 
-// Compute the optimal overnight start time and cost estimate.
-// Throws { code: 'PRICES_PENDING' } if the cache has no data for the relevant window.
-export async function computeOvernightStart(socStart, socTarget, departureTime) {
+// Compute fixed 2 AM overnight start and cost estimate.
+// socStart and socTarget are percentages (0–100).
+// Returns { scheduledStartAt, estimatedCostDollars, priceWindowAvgCents }.
+export async function computeOvernightStart(socStart, socTarget, _departureTime) {
   const kwhNeeded = Math.max(0, ((socTarget - socStart) / 100) * MAEVING_BATTERY_KWH);
-  const requiredHours = Math.max(1, Math.ceil(kwhNeeded / MAEVING_CHARGE_RATE_KW));
-  const targetHour = departureTime ? parseInt(departureTime.split(':')[0], 10) : 7;
-
-  const tomorrowMs = Date.now() + 86_400_000;
-  const tomorrowKey = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
-  }).format(new Date(tomorrowMs));
-  const todayKey = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
-  }).format(new Date());
-
-  const tomorrowPrices = getCachedPricesForDate(tomorrowKey) ?? [];
-  const todayPrices    = getCachedPricesForDate(todayKey) ?? [];
-  const seen = new Set();
-  const prices = [...todayPrices, ...tomorrowPrices].filter(e => {
-    if (seen.has(e.millisUTC)) return false;
-    seen.add(e.millisUTC);
-    return true;
-  });
-
-  if (!prices.length) {
-    const err = new Error('Day-ahead prices not yet cached');
-    err.code = 'PRICES_PENDING';
-    throw err;
-  }
-
-  const overnightPrices = filterOvernightPrices(prices, OVERNIGHT_WINDOW_START_HOUR, targetHour);
-
-  if (!overnightPrices.length) {
-    const err = new Error('No overnight price data in cache');
-    err.code = 'PRICES_PENDING';
-    throw err;
-  }
-
-  const avgAll = overnightPrices.reduce((s, e) => s + e.price, 0) / overnightPrices.length;
-  const best = findCheapestWindow(overnightPrices, requiredHours) ?? {
-    entries: overnightPrices,
-    avgPriceCents: avgAll,
-  };
-
+  const fixedRateCents = getComedFixedTotalCents();
+  const estimatedCostDollars = (fixedRateCents * kwhNeeded) / 100;
   return {
-    scheduledStartAt: new Date(best.entries[0].millisUTC).toISOString(),
-    estimatedCostDollars: (best.avgPriceCents * kwhNeeded) / 100,
-    priceWindowAvgCents: best.avgPriceCents,
+    scheduledStartAt: getFixed2AmStart(),
+    estimatedCostDollars,
+    priceWindowAvgCents: null,   // no live price available; cost is fixed-rate estimate
   };
 }
 
@@ -151,35 +114,6 @@ export function getFallbackScheduledStartAt() {
 }
 
 async function runScheduledSessions() {
-  // --- Daily day-ahead price fetch (5 PM CT, retry every 15 min until 9 PM CT) ---
-  dayAheadFetchTickCount += 1;
-  const ctHour = getCurrentCtHour();
-  const tomorrowFetchKey = new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
-  }).format(new Date(Date.now() + 86_400_000));
-  const alreadyFetchedToday = lastDayAheadFetchDate === tomorrowFetchKey;
-  const inFetchWindow = ctHour >= 17 && ctHour < 21;
-  const ticksSinceLastRetry = dayAheadFetchTickCount - lastDayAheadRetryTick;
-  // 15 ticks × 60s = 900s = 15 minutes
-  const retryDue = ticksSinceLastRetry >= 15 || lastDayAheadRetryTick === -1;
-  if (!alreadyFetchedToday && inFetchWindow && retryDue) {
-    lastDayAheadRetryTick = dayAheadFetchTickCount;
-    try {
-      await fetchAndCacheDayAheadPrices();
-      lastDayAheadFetchDate = tomorrowFetchKey;
-      schedulerLogger?.info(
-        { date: tomorrowFetchKey },
-        'Maeving scheduler: day-ahead prices cached for %s',
-        tomorrowFetchKey,
-      );
-    } catch (err) {
-      schedulerLogger?.warn(
-        { err, date: tomorrowFetchKey, ctHour },
-        'Maeving scheduler: day-ahead price fetch failed — will retry in 15 min',
-      );
-    }
-  }
-
   const now = new Date().toISOString();
   const sessions = db
     .prepare(
@@ -254,6 +188,144 @@ async function runScheduledSessions() {
     }
   }
 
+  // --- 2 AM auto-probe for BG and MH ---
+  const probeDevices = db.prepare(
+    `SELECT * FROM maeving_devices WHERE enabled = 1 AND auto_probe = 1`
+  ).all();
+  const ctDateNow = getCtDateStr();
+  const ctHourNow = getCurrentCtHour();
+  for (const device of probeDevices) {
+    // Skip if already probed today
+    if (lastProbeDateByDevice[device.id] === ctDateNow) continue;
+    // Skip if not in the 2 AM hour
+    if (ctHourNow !== 2) continue;
+    // Skip if there is already an active or scheduled session for this device
+    const existingSession = db.prepare(
+      `SELECT id FROM maeving_sessions WHERE device_id = ? AND status IN ('active','scheduled') LIMIT 1`
+    ).get(device.id);
+    if (existingSession) {
+      // Don't probe — user already has something going. Mark as done for today.
+      lastProbeDateByDevice[device.id] = ctDateNow;
+      schedulerLogger?.info(
+        { deviceId: device.id, siteKey: device.site_key },
+        'Maeving auto-probe: existing session found for %s — skipping probe',
+        device.site_key,
+      );
+      continue;
+    }
+
+    if (!probeActiveSince[device.id]) {
+      // Initiate: turn plug on and record the time
+      try {
+        await setPlugState(device.ip, true);
+        probeActiveSince[device.id] = Date.now();
+        schedulerLogger?.info(
+          { deviceId: device.id, siteKey: device.site_key },
+          'Maeving auto-probe: plug ON for %s — will evaluate on next tick',
+          device.site_key,
+        );
+      } catch (err) {
+        schedulerLogger?.warn(
+          { err, deviceId: device.id, siteKey: device.site_key },
+          'Maeving auto-probe: failed to turn on plug for %s',
+          device.site_key,
+        );
+      }
+      continue;
+    }
+
+    // Evaluate phase: plug has been on for at least one tick — read apower
+    let apower = null;
+    try {
+      const status = await getPlugStatus(device.ip);
+      apower = status?.apower ?? null;
+    } catch (err) {
+      schedulerLogger?.warn(
+        { err, deviceId: device.id, siteKey: device.site_key },
+        'Maeving auto-probe: failed to read plug status for %s — aborting probe',
+        device.site_key,
+      );
+      // Clean up and mark done so we don't retry all night
+      delete probeActiveSince[device.id];
+      lastProbeDateByDevice[device.id] = ctDateNow;
+      continue;
+    }
+
+    const PROBE_THRESHOLD_WATTS = 20;
+    const isCharging = apower !== null && apower > PROBE_THRESHOLD_WATTS;
+
+    if (isCharging) {
+      // Charger is connected and drawing power — create a session
+      const lastSession = db.prepare(
+        `SELECT actual_soc_pct, soc_target_pct
+         FROM maeving_sessions
+         WHERE device_id = ? AND status IN ('complete','charger_complete')
+         ORDER BY ended_at DESC LIMIT 1`
+      ).get(device.id);
+      const socStart = lastSession?.actual_soc_pct ?? lastSession?.soc_target_pct ?? 0;
+      const socTarget = device.default_soc_target;
+      const probeNow = new Date().toISOString();
+
+      // Write baseline reading
+      try {
+        const liveStatus = await getPlugStatus(device.ip);
+        const baselineAenergy = liveStatus?.aenergy?.total ?? null;
+        if (baselineAenergy !== null) {
+          db.prepare(
+            `INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
+             VALUES (?, ?, ?, ?, ?)`
+          ).run(
+            device.id,
+            liveStatus?.apower ?? 0,
+            liveStatus?.current ?? 0,
+            liveStatus?.voltage ?? 0,
+            baselineAenergy,
+          );
+        }
+      } catch (err) {
+        schedulerLogger?.warn({ err }, 'Maeving auto-probe: failed to write baseline reading for %s', device.site_key);
+      }
+
+      const kwhNeeded = Math.max(0, ((socTarget - socStart) / 100) * MAEVING_BATTERY_KWH);
+      const fixedRateCents = getComedFixedTotalCents();
+      const estimatedCostDollars = device.cost_free ? 0 : (fixedRateCents * kwhNeeded) / 100;
+
+      db.prepare(`
+        INSERT INTO maeving_sessions (
+          device_id, status, charge_mode,
+          soc_start_pct, soc_target_pct,
+          started_at, created_at,
+          estimated_cost_dollars
+        ) VALUES (?, 'active', 'auto', ?, ?, ?, ?, ?)
+      `).run(
+        device.id, socStart, socTarget,
+        probeNow, probeNow,
+        estimatedCostDollars,
+      );
+      schedulerLogger?.info(
+        { deviceId: device.id, siteKey: device.site_key, socStart, socTarget, apower },
+        'Maeving auto-probe: charger detected for %s (%dW) — session created %d%%→%d%%',
+        device.site_key, Math.round(apower), socStart, socTarget,
+      );
+    } else {
+      // No load detected — shut plug off
+      try {
+        await setPlugState(device.ip, false);
+      } catch (err) {
+        schedulerLogger?.warn({ err }, 'Maeving auto-probe: failed to shut off plug for %s after no-load probe', device.site_key);
+      }
+      schedulerLogger?.info(
+        { deviceId: device.id, siteKey: device.site_key, apower },
+        'Maeving auto-probe: no charger detected for %s (%s W) — plug off',
+        device.site_key, apower ?? 'null',
+      );
+    }
+
+    // Mark probe complete for today regardless of result
+    delete probeActiveSince[device.id];
+    lastProbeDateByDevice[device.id] = ctDateNow;
+  }
+
   // --- Active session auto-cutoff ---
   const activeSessions = db.prepare(`
     SELECT s.*, d.ip, d.site_key, d.cost_free
@@ -284,7 +356,7 @@ async function runScheduledSessions() {
         schedulerLogger?.warn({ err }, 'Maeving: failed to cut power for session %d', session.id);
       }
       // Close the session
-      const now = new Date().toISOString();
+      const cutoffNow = new Date().toISOString();
       let cutoffCostDollars = null;
       let cutoffPriceAvgCents = session.price_window_avg_cents ?? null;
 
@@ -339,7 +411,7 @@ async function runScheduledSessions() {
             lf_equivalent_cost_dollars = ?,
             lf_equivalent_fixed_dollars = ?
         WHERE id = ?
-      `).run(now, stats.wh_delivered, stats.peak_watts, stats.avg_watts,
+      `).run(cutoffNow, stats.wh_delivered, stats.peak_watts, stats.avg_watts,
              cutoffCostDollars, cutoffPriceAvgCents,
              cutoffFixedRateDollars, cutoffHourlySavingsDollars,
              cutoffLfEquivalentCost, cutoffLfEquivalentFixed, session.id);
@@ -395,7 +467,7 @@ async function runScheduledSessions() {
       }
 
       const stats = sessionReadingsStats(session.device_id, session.started_at);
-      const now = new Date().toISOString();
+      const completeNow = new Date().toISOString();
 
       let actualCostDollars = null;
       let fixedRateCostDollars = null;
@@ -445,7 +517,7 @@ async function runScheduledSessions() {
             lf_equivalent_cost_dollars = ?,
             lf_equivalent_fixed_dollars = ?
         WHERE id = ?
-      `).run(now,
+      `).run(completeNow,
         stats?.wh_delivered ?? null, stats?.peak_watts ?? null, stats?.avg_watts ?? null,
         actualCostDollars, priceAvgCents,
         fixedRateCostDollars, hourlySavingsDollars,
@@ -460,49 +532,6 @@ async function runScheduledSessions() {
       `).run(completeSavingsDelta);
 
       invalidateActiveSessionCache(session.device_id);
-    }
-  }
-
-  // --- Overnight price optimization for sessions still on fallback ---
-  const unpricedSessions = db.prepare(`
-    SELECT s.*, d.ip
-    FROM maeving_sessions s
-    JOIN maeving_devices d ON d.id = s.device_id
-    WHERE s.status = 'scheduled'
-      AND s.price_window_avg_cents IS NULL
-      AND s.scheduled_start_at > ?
-  `).all(new Date().toISOString());
-  for (const session of unpricedSessions) {
-    try {
-      const result = await computeOvernightStart(
-        session.soc_start_pct ?? 0,
-        session.soc_target_pct ?? 100,
-        session.departure_time,
-      );
-      db.prepare(`
-        UPDATE maeving_sessions
-        SET scheduled_start_at     = ?,
-            estimated_cost_dollars = ?,
-            price_window_avg_cents = ?
-        WHERE id = ? AND status = 'scheduled'
-      `).run(
-        result.scheduledStartAt,
-        result.estimatedCostDollars,
-        result.priceWindowAvgCents,
-        session.id,
-      );
-      schedulerLogger?.info(
-        { sessionId: session.id, scheduledStartAt: result.scheduledStartAt },
-        'Maeving scheduler: overnight price optimized for session %d',
-        session.id,
-      );
-    } catch (err) {
-      // PRICES_PENDING or network error — keep fallback, try again next poll
-      schedulerLogger?.debug(
-        { sessionId: session.id, err: err.message },
-        'Maeving scheduler: prices not yet available for session %d — will retry',
-        session.id,
-      );
     }
   }
 }

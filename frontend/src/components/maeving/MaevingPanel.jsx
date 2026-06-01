@@ -121,7 +121,6 @@ function getSessionRowClass(session, device) {
 }
 
 
-const SITE_DEFAULT_SOC = { BG: 40, MH: 84, LF: 95 };
 
 export function MaevingPanel() {
   const [devices, setDevices] = useState([]);
@@ -226,12 +225,10 @@ export function MaevingPanel() {
 
   // Apply per-site default target SOC when device selection changes (no active session)
   useEffect(() => {
-    if (activeSession) return;
-    const siteKey = selectedDevice?.site_key;
-    if (siteKey && siteKey in SITE_DEFAULT_SOC) {
-      setSocTarget(SITE_DEFAULT_SOC[siteKey]);
-    }
-  }, [selectedId, devices, activeSession?.id]);
+    if (!selectedDevice || activeSession) return;
+    const defaultTarget = selectedDevice.default_soc_target ?? 95;
+    setSocTarget(defaultTarget);
+  }, [selectedDevice?.id, !!activeSession]);
 
   useEffect(() => {
     if (detailsIntervalRef.current) {
@@ -605,18 +602,6 @@ export function MaevingPanel() {
   const isScheduled = activeSession?.status === 'scheduled';
   const isCharging = activeSession?.status === 'active';
   const estCost = activeSession?.estimated_cost_dollars;
-  const showPendingPricesBanner =
-    activeSession?.status === 'scheduled' &&
-    activeSession?.price_window_avg_cents == null;
-  const ctHourNow = Number(
-    new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Chicago',
-      hour: '2-digit',
-      hour12: false,
-    }).format(new Date())
-  );
-  const showPriceFailureBanner = showPendingPricesBanner && ctHourNow >= 21;
-  const showPricePendingBanner = showPendingPricesBanner && ctHourNow < 21;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
@@ -850,17 +835,6 @@ export function MaevingPanel() {
                       Taper not yet detected — watching for CV phase
                     </p>
                   )}
-                </div>
-              )}
-
-              {showPricePendingBanner && (
-                <div className="rounded-2xl border border-blue-800/60 bg-blue-950/40 px-4 py-3 text-sm text-blue-300">
-                  Day-ahead prices not yet published. Start time will be optimized at 5:00 PM CT. Fallback: 3:00 AM CT.
-                </div>
-              )}
-              {showPriceFailureBanner && (
-                <div className="rounded-2xl border border-amber-800/60 bg-amber-950/40 px-4 py-3 text-sm text-amber-300">
-                  Day-ahead price lookup failed. Charge will run at 3:00 AM CT.
                 </div>
               )}
 
@@ -1145,23 +1119,25 @@ export function MaevingPanel() {
               {/* Charge mode buttons — hidden when calibration is blocking */}
               {!isCalibrationBlocking && (
                 chargeMode === 'now' ? (
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className={selectedDevice?.site_key === 'LF' ? '' : 'grid grid-cols-2 gap-3'}>
                     <button
                       type="button"
                       onClick={handleChargeNow}
                       disabled={starting || isOverLimit}
-                      className="min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60"
+                      className={`min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60${selectedDevice?.site_key === 'LF' ? ' w-full' : ''}`}
                     >
                       {starting ? 'Logging…' : 'Charge Now'}
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setChargeMode('overnight')}
-                      disabled={starting}
-                      className="min-h-14 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
-                    >
-                      Charge Overnight
-                    </button>
+                    {selectedDevice?.site_key !== 'LF' && (
+                      <button
+                        type="button"
+                        onClick={() => setChargeMode('overnight')}
+                        disabled={starting}
+                        className="min-h-14 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
+                      >
+                        Charge Overnight
+                      </button>
+                    )}
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 gap-3">
@@ -1217,6 +1193,11 @@ export function MaevingPanel() {
                 >
                   <span className="font-semibold text-slate-300">
                     {device?.site_key ?? '?'}
+                    {session.charge_mode === 'auto' && (
+                      <span className="ml-1.5 rounded bg-sky-800/60 px-1 py-0.5 text-xs font-normal text-sky-300">
+                        auto
+                      </span>
+                    )}
                     {needsCalibration && (
                       <span
                         className="ml-1.5 inline-block h-2 w-2 rounded-full bg-amber-400"

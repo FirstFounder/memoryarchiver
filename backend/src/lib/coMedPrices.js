@@ -1,5 +1,3 @@
-import db from '../db/client.js';
-
 const CHICAGO_TIMEZONE = 'America/Chicago';
 
 function parsePriceRow(row) {
@@ -95,50 +93,6 @@ function collectNightWindow(prices, baseDateKey, windowStartHour, targetHour) {
   });
 
   return selected.sort((a, b) => a.millisUTC - b.millisUTC);
-}
-
-function getCtDateKey(millisUTC = Date.now()) {
-  return new Intl.DateTimeFormat('en-CA', {
-    timeZone: 'America/Chicago',
-  }).format(new Date(millisUTC));
-}
-
-function toComEdDateParam(ctDateStr, hour, minute) {
-  return `${ctDateStr.replace(/-/g, '')}${String(hour).padStart(2, '0')}${String(minute).padStart(2, '0')}`;
-}
-
-export async function fetchFiveMinuteRange(ctDateStr) {
-  const dateStart = toComEdDateParam(ctDateStr, 0, 0);
-  const dateEnd   = toComEdDateParam(ctDateStr, 23, 55);
-  const url = `https://hourlypricing.comed.com/api?type=5minutefeed&datestart=${dateStart}&dateend=${dateEnd}&format=json`;
-  return fetchPrices(url);
-}
-
-export async function fetchAndCacheDayAheadPrices() {
-  const tomorrow = new Date();
-  tomorrow.setDate(tomorrow.getDate() + 1);
-  const tomorrowCtKey = getCtDateKey(tomorrow.getTime());
-  const prices = await fetchFiveMinuteRange(tomorrowCtKey);
-  if (!prices.length) {
-    throw new Error('fetchAndCacheDayAheadPrices: empty result for ' + tomorrowCtKey);
-  }
-  db.prepare(`
-    INSERT OR REPLACE INTO maeving_price_cache (price_date, prices_json, fetched_at, source)
-    VALUES (?, ?, datetime('now'), '5minutefeed')
-  `).run(tomorrowCtKey, JSON.stringify(prices));
-  return prices;
-}
-
-export function getCachedPricesForDate(ctDateStr) {
-  const row = db.prepare(
-    'SELECT prices_json FROM maeving_price_cache WHERE price_date = ?'
-  ).get(ctDateStr);
-  if (!row) return null;
-  try {
-    return JSON.parse(row.prices_json);
-  } catch {
-    return null;
-  }
 }
 
 export async function fetchCurrentHourPrice() {
