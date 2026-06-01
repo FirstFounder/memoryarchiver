@@ -153,6 +153,7 @@ export default function App() {
   const [maevingWhPerMile, setMaevingWhPerMile] = useState(null);
   const [maevingTotalKwh, setMaevingTotalKwh] = useState(null);
   const [maevingTotalSpent, setMaevingTotalSpent] = useState(null);
+  const [maevingRebelTotal, setMaevingRebelTotal] = useState(null);
   useEffect(() => {
     if (!isMaeving) return;
     let active = true;
@@ -166,6 +167,7 @@ export default function App() {
             setMaevingWhPerMile(data.avg_wh_per_mile ?? null);
             setMaevingTotalKwh(data.total_wh_added != null ? data.total_wh_added / 1000 : null);
             setMaevingTotalSpent(data.total_money_spent ?? null);
+            setMaevingRebelTotal(data.total_rebel_cost ?? null);
           }
         }
       } catch { /* silent */ }
@@ -317,6 +319,17 @@ export default function App() {
                 ${maevingSavings.toFixed(2)}
               </span>
               <span className="text-xs text-slate-500 leading-tight">saved</span>
+            </span>
+          )}
+          {isMaeving && maevingRebelTotal != null && (
+            <span className="flex flex-col items-center gap-0">
+              <span
+                className="inline-flex items-center rounded bg-white px-1.5 py-0.5 text-base font-semibold"
+                style={{ color: '#CC0000', fontSize: '1.2em' }}
+              >
+                ${maevingRebelTotal.toFixed(2)}
+              </span>
+              <span className="text-xs text-slate-500 leading-tight">Rebel 250</span>
             </span>
           )}
           <span className="text-slate-600">·</span>

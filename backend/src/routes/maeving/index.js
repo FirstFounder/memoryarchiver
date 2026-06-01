@@ -940,13 +940,14 @@ export default async function maevingRoutes(fastify) {
     const history = JSON.parse(cfg.capacity_history_json || '[]');
     const totals = db.prepare(`
       SELECT
-        COALESCE(SUM(s.wh_delivered), 0)        AS total_wh_added,
-        COALESCE(SUM(s.actual_cost_dollars), 0)  AS total_money_spent
+        COALESCE(SUM(CASE WHEN d.cost_free = 0 AND s.wh_delivered IS NOT NULL
+                          THEN s.wh_delivered ELSE 0 END), 0)       AS total_wh_added,
+        COALESCE(SUM(CASE WHEN d.cost_free = 0 AND s.wh_delivered IS NOT NULL
+                          THEN s.actual_cost_dollars ELSE 0 END), 0) AS total_money_spent,
+        SUM(s.rebel_cost_total)                                       AS total_rebel_cost
       FROM maeving_sessions s
       JOIN maeving_devices d ON d.id = s.device_id
       WHERE s.status IN ('complete', 'charger_complete')
-        AND d.cost_free = 0
-        AND s.wh_delivered IS NOT NULL
     `).get();
     return reply.send({
       ...cfg,
@@ -955,6 +956,7 @@ export default async function maevingRoutes(fastify) {
       capacityHistory: history.slice(-10),
       total_wh_added: totals.total_wh_added,
       total_money_spent: totals.total_money_spent,
+      total_rebel_cost: totals.total_rebel_cost,
     });
   });
 
