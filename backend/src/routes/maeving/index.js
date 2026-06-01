@@ -16,7 +16,7 @@ import {
   recordSessionComplete,
   skipCalibration,
 } from '../../lib/maevingCalibration.js';
-import { computeRebelCost, fetchGasPrice } from '../../lib/eiaGasPrice.js';
+import { computeRebelCostSync } from '../../lib/eiaGasPrice.js';
 
 function getComedBaseRateCents() {
   const month = new Date().getMonth() + 1; // 1-12
@@ -147,7 +147,7 @@ export default async function maevingRoutes(fastify) {
   fastify.get('/api/maeving/rides/pending', async (_req, reply) => {
     const rides = db.prepare(`
       SELECT r.id, r.trip_id, r.started_at, r.finished_at, r.duration_min,
-             r.start_soc_pct, r.end_soc_pct, r.wh_per_mile, r.notes,
+             r.start_soc_pct, r.end_soc_pct, r.wh_per_mile, r.notes, r.rebel_cost,
              r.windbreaker, r.overheat_pack, r.overheat_motor, r.overheat_level, r.sporty_level,
              t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r
@@ -172,10 +172,11 @@ export default async function maevingRoutes(fastify) {
     if (existing) return reply.code(409).send({ error: 'A ride is already in progress' });
 
     const startedAt = new Date().toISOString();
+    const rebelCost = computeRebelCostSync(trip.distance_miles);
     const result = db.prepare(`
-      INSERT INTO maeving_rides (trip_id, started_at, finished_at, duration_min, start_soc_pct)
-      VALUES (?, ?, NULL, NULL, ?)
-    `).run(trip_id, startedAt, start_soc_pct ?? null);
+      INSERT INTO maeving_rides (trip_id, started_at, finished_at, duration_min, start_soc_pct, rebel_cost)
+      VALUES (?, ?, NULL, NULL, ?, ?)
+    `).run(trip_id, startedAt, start_soc_pct ?? null, rebelCost);
 
     notifyRideStarted(result.lastInsertRowid, startedAt);
 
@@ -190,6 +191,7 @@ export default async function maevingRoutes(fastify) {
       start_soc_pct: start_soc_pct ?? null,
       end_soc_pct: null,
       wh_per_mile: null,
+      rebel_cost: rebelCost,
     });
   });
 
@@ -305,6 +307,13 @@ export default async function maevingRoutes(fastify) {
       }
     }
 
+    let newRebelCost = ride.rebel_cost;
+    if (trip_id !== undefined) {
+      const tripForRebel = tripForCalc ??
+        db.prepare('SELECT distance_miles FROM maeving_trips WHERE id = ?').get(ride.trip_id);
+      newRebelCost = computeRebelCostSync(tripForRebel.distance_miles);
+    }
+
     if (started_at || finished_at) {
       const overlap = db.prepare(`
         SELECT id FROM maeving_rides
@@ -320,6 +329,7 @@ export default async function maevingRoutes(fastify) {
     db.prepare(`
       UPDATE maeving_rides
       SET started_at = ?, finished_at = ?, duration_min = ?, end_soc_pct = ?, wh_per_mile = ?,
+          rebel_cost = ?,
           notes = ?, trip_id = ?,
           windbreaker    = ?,
           overheat_pack  = ?,
@@ -328,6 +338,7 @@ export default async function maevingRoutes(fastify) {
           sporty_level   = ?
       WHERE id = ?
     `).run(newStartedAt, newFinishedAt, durationMin, newEndSoc, whPerMile,
+           newRebelCost,
            notes !== undefined ? notes : ride.notes, newTripId,
            windbreaker, overheatPack, overheatMotor, overheatLevel, sportyLevel,
            ride.id);
@@ -379,17 +390,6 @@ export default async function maevingRoutes(fastify) {
     return reply.send(pings);
   });
 
-  // ── Rebel cost ────────────────────────────────────────────────────────────────
-
-  fastify.get('/api/maeving/rebel-cost', async (req, reply) => {
-    const miles = parseFloat(req.query.miles);
-    if (!req.query.miles || !isFinite(miles) || miles <= 0) {
-      return reply.code(400).send({ error: 'miles must be a positive number' });
-    }
-    const { cost, stale } = await computeRebelCost(miles);
-    return reply.send({ cost, stale, miles, mpg: 61.6 });
-  });
-
   // ── Sessions ──────────────────────────────────────────────────────────────────
 
   fastify.get('/api/maeving/sessions', async (req, reply) => {
@@ -411,56 +411,6 @@ export default async function maevingRoutes(fastify) {
     });
   });
 
-  fastify.post('/api/maeving/sessions/backfill-rebel-costs', async (_req, reply) => {
-    const { price, stale } = await fetchGasPrice();
-    if (price == null) {
-      return reply.code(400).send({ error: 'EIA price unavailable — cannot backfill' });
-    }
-
-    const sessions = db.prepare(`
-      SELECT id,
-        leg_1_trip_id, leg_2_trip_id, leg_3_trip_id, leg_4_trip_id,
-        leg_5_trip_id, leg_6_trip_id, leg_7_trip_id, leg_8_trip_id
-      FROM maeving_sessions
-      WHERE status = 'complete'
-        AND rebel_cost_total IS NULL
-        AND leg_1_trip_id IS NOT NULL
-    `).all();
-
-    const REBEL_MPG = 61.6;
-    let updated = 0;
-
-    const updateStmt = db.prepare(`
-      UPDATE maeving_sessions
-      SET rebel_cost_total = ?, rebel_cost_stale = ?
-      WHERE id = ?
-    `);
-
-    const runAll = db.transaction(() => {
-      for (const session of sessions) {
-        const legTripIds = [1, 2, 3, 4, 5, 6, 7, 8]
-          .map((n) => session[`leg_${n}_trip_id`])
-          .filter(Boolean);
-
-        let totalMiles = 0;
-        for (const tripId of legTripIds) {
-          const trip = db.prepare('SELECT distance_miles FROM maeving_trips WHERE id = ?').get(tripId);
-          if (trip?.distance_miles) totalMiles += trip.distance_miles;
-        }
-
-        if (totalMiles <= 0) continue;
-
-        const rebelCost = (totalMiles / REBEL_MPG) * price;
-        updateStmt.run(rebelCost, stale ? 1 : 0, session.id);
-        updated++;
-      }
-    });
-
-    runAll();
-
-    return reply.send({ updated, price, stale });
-  });
-
   fastify.post('/api/maeving/sessions', async (req, reply) => {
     const {
       device_id,
@@ -479,24 +429,14 @@ export default async function maevingRoutes(fastify) {
       leg_3_duration_min,
       leg_4_trip_id,
       leg_4_duration_min,
-      leg_1_rebel_cost,
-      leg_2_rebel_cost,
-      leg_3_rebel_cost,
-      leg_4_rebel_cost,
       leg_5_trip_id,
       leg_5_duration_min,
-      leg_5_rebel_cost,
       leg_6_trip_id,
       leg_6_duration_min,
-      leg_6_rebel_cost,
       leg_7_trip_id,
       leg_7_duration_min,
-      leg_7_rebel_cost,
       leg_8_trip_id,
       leg_8_duration_min,
-      leg_8_rebel_cost,
-      rebel_cost_total,
-      rebel_cost_stale,
       leg_1_ride_id,
       leg_2_ride_id,
       leg_3_ride_id,
@@ -523,6 +463,39 @@ export default async function maevingRoutes(fastify) {
       if (!rideId) return null;
       return db.prepare('SELECT start_soc_pct, end_soc_pct, wh_per_mile, started_at FROM maeving_rides WHERE id = ?').get(rideId) ?? null;
     });
+
+    // Compute rebel costs server-side from rides and manual legs
+    const legRebelCostValues = {};
+    let rebelCostTotal = 0;
+    let hasRebelCost = false;
+
+    const legTripIds = [leg_1_trip_id, leg_2_trip_id, leg_3_trip_id, leg_4_trip_id,
+                        leg_5_trip_id, leg_6_trip_id, leg_7_trip_id, leg_8_trip_id];
+    const legRideIds  = [leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id,
+                         leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id];
+
+    for (let n = 1; n <= 8; n++) {
+      const rideId = legRideIds[n - 1];
+      if (rideId) {
+        const ride = db.prepare('SELECT rebel_cost FROM maeving_rides WHERE id = ?').get(rideId);
+        if (ride?.rebel_cost != null) {
+          legRebelCostValues[n] = ride.rebel_cost;
+          rebelCostTotal += ride.rebel_cost;
+          hasRebelCost = true;
+        }
+      } else {
+        const tripId = legTripIds[n - 1];
+        if (tripId) {
+          const trip = db.prepare('SELECT distance_miles FROM maeving_trips WHERE id = ?').get(tripId);
+          const cost = computeRebelCostSync(trip?.distance_miles);
+          if (cost != null) {
+            legRebelCostValues[n] = cost;
+            rebelCostTotal += cost;
+            hasRebelCost = true;
+          }
+        }
+      }
+    }
 
     // Collect new wh_per_mile values from these rides
     const newWhPerMileValues = rideDataByLeg
@@ -599,16 +572,16 @@ export default async function maevingRoutes(fastify) {
       leg_7_duration_min ?? null,
       leg_8_trip_id ?? null,
       leg_8_duration_min ?? null,
-      leg_1_rebel_cost ?? null,
-      leg_2_rebel_cost ?? null,
-      leg_3_rebel_cost ?? null,
-      leg_4_rebel_cost ?? null,
-      leg_5_rebel_cost ?? null,
-      leg_6_rebel_cost ?? null,
-      leg_7_rebel_cost ?? null,
-      leg_8_rebel_cost ?? null,
-      rebel_cost_total ?? null,
-      rebel_cost_stale ?? 0,
+      legRebelCostValues[1] ?? null,
+      legRebelCostValues[2] ?? null,
+      legRebelCostValues[3] ?? null,
+      legRebelCostValues[4] ?? null,
+      legRebelCostValues[5] ?? null,
+      legRebelCostValues[6] ?? null,
+      legRebelCostValues[7] ?? null,
+      legRebelCostValues[8] ?? null,
+      hasRebelCost ? rebelCostTotal : null,
+      0,
       rideDataByLeg[0]?.wh_per_mile ?? null,
       rideDataByLeg[1]?.wh_per_mile ?? null,
       rideDataByLeg[2]?.wh_per_mile ?? null,

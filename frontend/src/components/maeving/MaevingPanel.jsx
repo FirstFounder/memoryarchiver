@@ -8,7 +8,6 @@ import {
   getDevices,
   getLegs,
   getPendingRides,
-  getRebelCost,
   getSession,
   getSessions,
   getSessionTaper,
@@ -148,9 +147,6 @@ export function MaevingPanel() {
   const [taperData, setTaperData] = useState(null);
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
   const [confirmDeleteCalIdx, setConfirmDeleteCalIdx] = useState(null);
-  const [legRebelCosts, setLegRebelCosts] = useState({});
-  const [checkedRebelCosts, setCheckedRebelCosts] = useState({});
-  const [rebelCostStale, setRebelCostStale] = useState(false);
   // Prestaged rides (plug-in form)
   const [pendingRides, setPendingRides] = useState([]);
   const [checkedRideIds, setCheckedRideIds] = useState(() => new Set());
@@ -322,9 +318,6 @@ export function MaevingPanel() {
     setDepartureTime('07:30');
     setError('');
     setLegs([{ trip_id: '', duration_min: '' }]);
-    setLegRebelCosts({});
-    setCheckedRebelCosts({});
-    setRebelCostStale(false);
     setPendingRides([]);
     setCheckedRideIds(new Set());
   }
@@ -346,20 +339,8 @@ export function MaevingPanel() {
       const next = new Set(prev);
       if (next.has(id)) {
         next.delete(id);
-        setCheckedRebelCosts((prev) => {
-          const n = { ...prev };
-          delete n[id];
-          return n;
-        });
       } else {
         next.add(id);
-        const ride = pendingRides.find((r) => r.id === id);
-        if (ride?.trip_miles) {
-          getRebelCost(ride.trip_miles).then((result) => {
-            setCheckedRebelCosts((prev) => ({ ...prev, [id]: result }));
-            if (result.stale) setRebelCostStale(true);
-          }).catch(() => {});
-        }
       }
       return next;
     });
@@ -382,28 +363,15 @@ export function MaevingPanel() {
       if (ride.duration_min != null) {
         legData[`leg_${slotIdx}_duration_min`] = Math.round(ride.duration_min);
       }
-      const rc = checkedRebelCosts[ride.id];
-      if (rc?.cost != null) legData[`leg_${slotIdx}_rebel_cost`] = rc.cost;
     }
 
-    legs.forEach((leg, i) => {
+    legs.forEach((leg) => {
       if (!leg.trip_id || slotIdx >= 8) return;
       slotIdx++;
       legData[`leg_${slotIdx}_trip_id`] = Number(leg.trip_id);
       if (leg.duration_min) legData[`leg_${slotIdx}_duration_min`] = Number(leg.duration_min);
-      const rc = legRebelCosts[i];
-      if (rc?.cost != null) legData[`leg_${slotIdx}_rebel_cost`] = rc.cost;
     });
 
-    const allRebelCosts = [
-      ...Object.values(checkedRebelCosts),
-      ...Object.values(legRebelCosts),
-    ];
-    const total = allRebelCosts.reduce(
-      (sum, rc) => (rc?.cost != null ? sum + rc.cost : sum), 0,
-    );
-    if (total > 0) legData.rebel_cost_total = total;
-    legData.rebel_cost_stale = rebelCostStale ? 1 : 0;
     return legData;
   }
 
@@ -1082,19 +1050,6 @@ export function MaevingPanel() {
                         updateLeg(i, 'trip_id', e.target.value);
                         if (!e.target.value) {
                           updateLeg(i, 'duration_min', '');
-                          setLegRebelCosts((prev) => {
-                            const next = { ...prev };
-                            delete next[i];
-                            return next;
-                          });
-                        } else {
-                          const trip = trips.find((t) => t.id === Number(e.target.value));
-                          if (trip) {
-                            getRebelCost(trip.distance_miles).then((result) => {
-                              setLegRebelCosts((prev) => ({ ...prev, [i]: result }));
-                              if (result.stale) setRebelCostStale(true);
-                            }).catch(() => {});
-                          }
                         }
                       }}
                     >
@@ -1165,64 +1120,6 @@ export function MaevingPanel() {
                     Based on previous charge to {tripStats.prev_max_soc_pct}% — effective pack:{' '}
                     {Math.round(config?.effective_capacity_wh ?? TOTAL_WH).toLocaleString()} Wh
                   </p>
-                </div>
-              )}
-
-              {/* Rebel 250 cost comparison */}
-              {(Object.keys(legRebelCosts).length > 0 || Object.keys(checkedRebelCosts).length > 0) && (
-                <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
-                  <div className="flex flex-wrap items-center gap-5 text-sm">
-                    <span className="text-xs font-semibold uppercase tracking-wider text-slate-500">
-                      vs Rebel 250
-                    </span>
-                    {pendingRides
-                      .filter((r) => checkedRideIds.has(r.id))
-                      .sort((a, b) => new Date(a.started_at) - new Date(b.started_at))
-                      .map((ride) => {
-                        const rc = checkedRebelCosts[ride.id];
-                        if (!rc?.cost) return null;
-                        return (
-                          <div key={ride.id} className="flex justify-between text-xs text-slate-400">
-                            <span>{ride.trip_name}</span>
-                            <span>${rc.cost.toFixed(2)}</span>
-                          </div>
-                        );
-                      })}
-                    {legs.map((leg, i) => {
-                      const rc = legRebelCosts[i];
-                      if (!leg.trip_id || !rc || rc.cost == null) return null;
-                      return (
-                        <span key={i} className="text-slate-400">
-                          Leg {checkedCount + i + 1}:{' '}
-                          <span className={`font-semibold text-amber-400${rc.stale ? ' animate-pulse' : ''}`}>
-                            ${rc.cost.toFixed(2)}
-                          </span>
-                        </span>
-                      );
-                    })}
-                    {(() => {
-                      const allRebelCosts = [
-                        ...Object.values(checkedRebelCosts),
-                        ...Object.values(legRebelCosts),
-                      ];
-                      const validEntries = allRebelCosts.filter((rc) => rc?.cost != null);
-                      if (validEntries.length < 2) return null;
-                      const total = validEntries.reduce((s, rc) => s + rc.cost, 0);
-                      return (
-                        <span className="text-slate-400">
-                          Total:{' '}
-                          <span className={`font-semibold text-amber-400${rebelCostStale ? ' animate-pulse' : ''}`}>
-                            ${total.toFixed(2)}
-                          </span>
-                        </span>
-                      );
-                    })()}
-                  </div>
-                  {rebelCostStale && (
-                    <p className="mt-1 text-xs text-slate-500">
-                      Gas price may be outdated (EIA cache stale)
-                    </p>
-                  )}
                 </div>
               )}
 
@@ -1349,7 +1246,7 @@ export function MaevingPanel() {
                           </span>
                         )}
                         {session.rebel_cost_total != null && (
-                          <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                          <span className={"text-amber-400"}>
                             vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
                           </span>
                         )}
@@ -1367,7 +1264,7 @@ export function MaevingPanel() {
                           Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
                         </span>
                       )}
-                      <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                      <span className={"text-amber-400"}>
                         vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
                       </span>
                     </span>
@@ -1857,7 +1754,7 @@ export function MaevingPanel() {
                                 </span>
                               )}
                               {session.rebel_cost_total != null && (
-                                <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                                <span className={"text-amber-400"}>
                                   vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
                                 </span>
                               )}
@@ -1875,7 +1772,7 @@ export function MaevingPanel() {
                                 Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
                               </span>
                             )}
-                            <span className={`text-amber-400${session.rebel_cost_stale === 1 ? ' animate-pulse' : ''}`}>
+                            <span className={"text-amber-400"}>
                               vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
                             </span>
                           </span>
