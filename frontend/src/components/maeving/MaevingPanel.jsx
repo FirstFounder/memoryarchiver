@@ -223,6 +223,9 @@ export function MaevingPanel() {
   // Poll active session details for live Wh estimate
   const activeSession = activeSessions[selectedId] ?? null;
 
+  // Needs to be declared before the useEffect that depends on it
+  const selectedDevice = devices.find((d) => d.id === selectedId) ?? null;
+
   // Apply per-site default target SOC when device selection changes (no active session)
   useEffect(() => {
     if (!selectedDevice || activeSession) return;
@@ -295,7 +298,6 @@ export function MaevingPanel() {
     };
   }, []);
 
-  const selectedDevice = devices.find((d) => d.id === selectedId) ?? null;
   const liveState = selectedDevice?.live ?? null;
   const liveApower = liveState?.apower ?? 0;
 
@@ -1925,3 +1927,6 @@ export function MaevingPanel() {
     </div>
   );
 }
+
+
+================================================================
