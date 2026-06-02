@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   calibrateSession,
   deleteCalibrationEntry,
@@ -10,6 +10,7 @@ import {
   getPendingRides,
   getSession,
   getSessions,
+  getSessionRideTelemetry,
   getSessionTaper,
   scheduleOvernight,
   skipCalibration,
@@ -19,6 +20,8 @@ import {
   updateRide,
 } from '../../api/maeving.js';
 import { SOCRoller } from '../tesla/SOCRoller.jsx';
+import RideTelemetryDetail from './RideTelemetryDetail.jsx';
+import { isMobile } from '../../lib/isMobile.js';
 
 const TOTAL_WH = 2880; // fallback when config not yet loaded
 
@@ -164,6 +167,9 @@ export function MaevingPanel() {
   const [noteValue, setNoteValue] = useState('');
   const [noteError, setNoteError] = useState('');
   const noteDialogRef = useRef(null);
+  const [expandedLegKey, setExpandedLegKey] = useState(null);
+  const [sessionTelemetryCache, setSessionTelemetryCache] = useState({});
+  const [telemetryLoading, setTelemetryLoading] = useState(false);
 
   const detailsIntervalRef = useRef(null);
   const taperIntervalRef = useRef(null);
@@ -598,6 +604,27 @@ export function MaevingPanel() {
     } else {
       setEditRideForm((f) => ({ ...f, notes: noteValue }));
       noteDialogRef.current.close();
+    }
+  }
+
+  async function handleLegRowClick(sessionId, legNum) {
+    if (isMobile()) return;
+    const key = `${sessionId}-${legNum}`;
+    if (expandedLegKey === key) {
+      setExpandedLegKey(null);
+      return;
+    }
+    setExpandedLegKey(key);
+    if (!sessionTelemetryCache[sessionId]) {
+      setTelemetryLoading(true);
+      try {
+        const data = await getSessionRideTelemetry(sessionId);
+        setSessionTelemetryCache(prev => ({ ...prev, [sessionId]: data }));
+      } catch {
+        setSessionTelemetryCache(prev => ({ ...prev, [sessionId]: { legs: {} } }));
+      } finally {
+        setTelemetryLoading(false);
+      }
     }
   }
 
@@ -1697,9 +1724,10 @@ export function MaevingPanel() {
                   }
                 }
                 return (
+                  <React.Fragment key={`${session.id}-${legNum}`}>
                   <div
-                    key={`${session.id}-${legNum}`}
-                    className={`grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.2fr)] rounded-2xl border px-4 py-3 text-sm ${isLF ? 'bg-orange-950/30 border-orange-800/40' : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]'}`}
+                    className={`grid grid-cols-[minmax(0,2fr)_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.5fr)_minmax(0,1.2fr)] rounded-2xl border px-4 py-3 text-sm ${isLF ? 'bg-orange-950/30 border-orange-800/40' : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]'}${!isMobile() ? ' cursor-pointer hover:border-slate-500' : ''}`}
+                    onClick={() => handleLegRowClick(session.id, legNum)}
                   >
                     <span className={`flex items-center ${isLastLeg ? `font-semibold ${lastLegColor}` : `font-semibold italic ${cellColor}`}`}>
                       {tripName}
@@ -1787,6 +1815,17 @@ export function MaevingPanel() {
                       ) : null}
                     </span>
                   </div>
+                  {expandedLegKey === `${session.id}-${legNum}` && (
+                    <RideTelemetryDetail
+                      legData={sessionTelemetryCache[session.id]?.legs?.[legNum] ?? null}
+                      sessionLeg={{ session, legNum, trip, durationMin, legStartedAt }}
+                      onClose={() => setExpandedLegKey(null)}
+                    />
+                  )}
+                  {expandedLegKey === `${session.id}-${legNum}` && telemetryLoading && (
+                    <div className="px-4 py-2 text-xs text-slate-500">Loading route data…</div>
+                  )}
+                  </React.Fragment>
                 );
               })}
             </div>

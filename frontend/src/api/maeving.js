@@ -149,3 +149,7 @@ export async function deleteCalibrationEntry(index) {
   if (!res.ok) throw new Error('Delete failed');
   return res.json();
 }
+
+export async function getSessionRideTelemetry(sessionId) {
+  return apiFetch(`/api/maeving/sessions/${sessionId}/ride-telemetry`);
+}

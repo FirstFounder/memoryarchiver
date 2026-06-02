@@ -390,6 +390,73 @@ export default async function maevingRoutes(fastify) {
     return reply.send(pings);
   });
 
+  fastify.get('/api/maeving/sessions/:id/ride-telemetry', async (req, reply) => {
+    const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(req.params.id);
+    if (!session) return reply.code(404).send({ error: 'not found' });
+    const legNums = [1, 2, 3, 4, 5, 6, 7, 8];
+    const result = {};
+    for (const n of legNums) {
+      const rideId = session[`leg_${n}_ride_id`];
+      if (!rideId) continue;
+      const pings = db.prepare(`
+        SELECT id, tst, lat, lon, alt, vel, cog, temp_f, wind_speed_mph, wind_dir_deg, motion
+        FROM owntracks_locations
+        WHERE ride_id = ?
+        ORDER BY tst ASC
+      `).all(rideId);
+      const autoPings = pings.filter(p => p.motion === 'automotive' && p.vel != null);
+      const maxVelKph = autoPings.length ? Math.max(...autoPings.map(p => p.vel)) : null;
+      const avgVelKph = autoPings.length
+        ? autoPings.reduce((s, p) => s + p.vel, 0) / autoPings.length
+        : null;
+      let elevationGainM = 0;
+      let elevationLossM = 0;
+      const alts = pings.filter(p => p.alt != null).map(p => p.alt);
+      for (let i = 1; i < alts.length; i++) {
+        const delta = alts[i] - alts[i - 1];
+        if (delta > 0) elevationGainM += delta;
+        else elevationLossM += Math.abs(delta);
+      }
+      function haversineKm(lat1, lon1, lat2, lon2) {
+        const R = 6371;
+        const dLat = (lat2 - lat1) * Math.PI / 180;
+        const dLon = (lon2 - lon1) * Math.PI / 180;
+        const a = Math.sin(dLat / 2) ** 2
+          + Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) * Math.sin(dLon / 2) ** 2;
+        return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+      }
+      let distanceKm = 0;
+      for (let i = 1; i < pings.length; i++) {
+        distanceKm += haversineKm(pings[i - 1].lat, pings[i - 1].lon, pings[i].lat, pings[i].lon);
+      }
+      const weatherPings = pings.filter(p => p.temp_f != null);
+      const avgTempF = weatherPings.length
+        ? weatherPings.reduce((s, p) => s + p.temp_f, 0) / weatherPings.length
+        : null;
+      const avgWindMph = weatherPings.length
+        ? weatherPings.reduce((s, p) => s + (p.wind_speed_mph ?? 0), 0) / weatherPings.length
+        : null;
+      const durationSec = pings.length >= 2
+        ? pings[pings.length - 1].tst - pings[0].tst
+        : null;
+      result[n] = {
+        pings,
+        stats: {
+          ping_count: pings.length,
+          max_vel_kph: maxVelKph,
+          avg_vel_kph: avgVelKph,
+          elevation_gain_m: elevationGainM > 0 ? elevationGainM : null,
+          elevation_loss_m: elevationLossM > 0 ? elevationLossM : null,
+          distance_km: distanceKm > 0 ? distanceKm : null,
+          avg_temp_f: avgTempF,
+          avg_wind_mph: avgWindMph,
+          duration_sec: durationSec,
+        }
+      };
+    }
+    return reply.send({ legs: result });
+  });
+
   // ── Sessions ──────────────────────────────────────────────────────────────────
 
   fastify.get('/api/maeving/sessions', async (req, reply) => {
@@ -544,8 +611,10 @@ export default async function maevingRoutes(fastify) {
          leg_7_start_soc_pct, leg_7_end_soc_pct,
          leg_8_start_soc_pct, leg_8_end_soc_pct,
          leg_1_started_at, leg_2_started_at, leg_3_started_at, leg_4_started_at,
-         leg_5_started_at, leg_6_started_at, leg_7_started_at, leg_8_started_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         leg_5_started_at, leg_6_started_at, leg_7_started_at, leg_8_started_at,
+         leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id,
+         leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       device_id,
       now,
@@ -614,6 +683,14 @@ export default async function maevingRoutes(fastify) {
       rideDataByLeg[5]?.started_at ?? null,
       rideDataByLeg[6]?.started_at ?? null,
       rideDataByLeg[7]?.started_at ?? null,
+      leg_1_ride_id ?? null,
+      leg_2_ride_id ?? null,
+      leg_3_ride_id ?? null,
+      leg_4_ride_id ?? null,
+      leg_5_ride_id ?? null,
+      leg_6_ride_id ?? null,
+      leg_7_ride_id ?? null,
+      leg_8_ride_id ?? null,
     );
 
     if (avgWhPerMile != null) {
