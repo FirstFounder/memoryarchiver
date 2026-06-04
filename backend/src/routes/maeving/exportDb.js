@@ -1,6 +1,8 @@
 import fs from 'fs';
+import path from 'path';
 import Database from 'better-sqlite3';
 import db from '../../db/client.js';
+import config from '../../config.js';
 
 const keepTables = new Set([
   'schema_migrations',
@@ -16,7 +18,7 @@ const keepTables = new Set([
 
 export default async function maevingExportDbRoutes(fastify) {
   fastify.get('/api/maeving/export-db', async (req, reply) => {
-    const tmpPath = `/tmp/maeving-export-${Date.now()}.db`;
+    const tmpPath = path.join(path.dirname(config.dbPath), `maeving-export-${Date.now()}.db`);
 
     try {
       await db.backup(tmpPath);
