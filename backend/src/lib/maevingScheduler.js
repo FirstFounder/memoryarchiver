@@ -430,6 +430,10 @@ async function runScheduledSessions() {
         UPDATE maeving_config SET running_savings_dollars = MAX(0, running_savings_dollars + ?) WHERE 1=1
       `).run(cutoffSavingsDelta);
 
+      if (session.soc_target_pct != null) {
+        db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(session.soc_target_pct);
+      }
+
       try {
         computeChargeCurve(session.id, db);
       } catch (err) {
@@ -551,6 +555,10 @@ async function runScheduledSessions() {
       db.prepare(`
         UPDATE maeving_config SET running_savings_dollars = MAX(0, running_savings_dollars + ?) WHERE 1=1
       `).run(completeSavingsDelta);
+
+      if (session.soc_target_pct != null) {
+        db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(session.soc_target_pct);
+      }
 
       // Clear calibration gate immediately; deferred observation captured at next ride start.
       db.prepare('UPDATE maeving_sessions SET calibration_complete = 1 WHERE id = ?').run(session.id);

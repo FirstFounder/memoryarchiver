@@ -979,6 +979,10 @@ export default async function maevingRoutes(fastify) {
 
     invalidateActiveSessionCache(session.device_id);
 
+    if (session.soc_target_pct != null) {
+      db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(session.soc_target_pct);
+    }
+
     // Mark calibration complete immediately so the UI returns to the Plug In card.
     // The actual SOC observation is deferred — it is captured at the next ride start.
     db.prepare(`
