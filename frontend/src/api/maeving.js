@@ -153,3 +153,7 @@ export async function deleteCalibrationEntry(index) {
 export async function getSessionRideTelemetry(sessionId) {
   return apiFetch(`/api/maeving/sessions/${sessionId}/ride-telemetry`);
 }
+
+export async function deleteSession(id) {
+  return apiFetch(`/api/maeving/sessions/${id}`, { method: 'DELETE' });
+}

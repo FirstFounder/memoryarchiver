@@ -234,11 +234,12 @@ async function runScheduledSessions() {
       continue;
     }
 
-    // Evaluate phase: plug has been on for at least one tick — read apower
+    // Evaluate phase: plug has been on for at least one tick — read status
+    let probeStatus = null;
     let apower = null;
     try {
-      const status = await getPlugStatus(device.ip);
-      apower = status?.apower ?? null;
+      probeStatus = await getPlugStatus(device.ip);
+      apower = probeStatus?.apower ?? null;
     } catch (err) {
       schedulerLogger?.warn(
         { err, deviceId: device.id, siteKey: device.site_key },
@@ -266,24 +267,29 @@ async function runScheduledSessions() {
       const socTarget = device.default_soc_target;
       const probeNow = new Date().toISOString();
 
-      // Write baseline reading
-      try {
-        const liveStatus = await getPlugStatus(device.ip);
-        const baselineAenergy = liveStatus?.aenergy?.total ?? null;
-        if (baselineAenergy !== null) {
+      // Write baseline reading using the same status read used for the apower check
+      const baselineAenergy = probeStatus?.aenergy?.total ?? null;
+      if (baselineAenergy !== null) {
+        try {
           db.prepare(
             `INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
              VALUES (?, ?, ?, ?, ?)`
           ).run(
             device.id,
-            liveStatus?.apower ?? 0,
-            liveStatus?.current ?? 0,
-            liveStatus?.voltage ?? 0,
+            probeStatus?.apower ?? 0,
+            probeStatus?.current ?? 0,
+            probeStatus?.voltage ?? 0,
             baselineAenergy,
           );
+        } catch (err) {
+          schedulerLogger?.warn({ err }, 'Maeving auto-probe: failed to write baseline reading for %s', device.site_key);
         }
-      } catch (err) {
-        schedulerLogger?.warn({ err }, 'Maeving auto-probe: failed to write baseline reading for %s', device.site_key);
+      } else {
+        schedulerLogger?.warn(
+          { deviceId: device.id, siteKey: device.site_key },
+          'Maeving auto-probe: aenergy_total null for %s — wh_delivered will be computed from MQTT readings only',
+          device.site_key,
+        );
       }
 
       const kwhNeeded = Math.max(0, ((socTarget - socStart) / 100) * MAEVING_BATTERY_KWH);
@@ -423,6 +429,14 @@ async function runScheduledSessions() {
         UPDATE maeving_config SET running_savings_dollars = MAX(0, running_savings_dollars + ?) WHERE 1=1
       `).run(cutoffSavingsDelta);
 
+      // Consume rides that were prestaged for this session
+      for (let n = 1; n <= 8; n++) {
+        const rideId = session[`leg_${n}_ride_id`];
+        if (rideId != null) {
+          db.prepare('DELETE FROM maeving_rides WHERE id = ?').run(rideId);
+        }
+      }
+
       invalidateActiveSessionCache(session.device_id);
     }
   }
@@ -530,6 +544,14 @@ async function runScheduledSessions() {
       db.prepare(`
         UPDATE maeving_config SET running_savings_dollars = MAX(0, running_savings_dollars + ?) WHERE 1=1
       `).run(completeSavingsDelta);
+
+      // Consume rides that were prestaged for this session
+      for (let n = 1; n <= 8; n++) {
+        const rideId = session[`leg_${n}_ride_id`];
+        if (rideId != null) {
+          db.prepare('DELETE FROM maeving_rides WHERE id = ?').run(rideId);
+        }
+      }
 
       invalidateActiveSessionCache(session.device_id);
     }

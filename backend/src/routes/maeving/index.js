@@ -965,6 +965,14 @@ export default async function maevingRoutes(fastify) {
       }
     }
 
+    // Consume rides that were prestaged for this session
+    for (let n = 1; n <= 8; n++) {
+      const rideId = session[`leg_${n}_ride_id`];
+      if (rideId != null) {
+        db.prepare('DELETE FROM maeving_rides WHERE id = ?').run(rideId);
+      }
+    }
+
     return reply.send(db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(session.id));
   });
 
@@ -1074,6 +1082,53 @@ export default async function maevingRoutes(fastify) {
     `).run(newJson, newCapacity, newCount);
 
     return reply.send({ ok: true, effective_capacity_wh: newCapacity, observation_count: newCount });
+  });
+
+  // DELETE /api/maeving/sessions/:id
+  fastify.delete('/api/maeving/sessions/:id', async (req, reply) => {
+    const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(req.params.id);
+    if (!session) return reply.code(404).send({ error: 'not found' });
+    if (session.status === 'active' || session.status === 'scheduled') {
+      return reply.code(409).send({ error: 'cannot delete an active or scheduled session' });
+    }
+
+    db.prepare('DELETE FROM maeving_sessions WHERE id = ?').run(session.id);
+
+    // Recompute running_savings_dollars from all remaining completed sessions
+    const savingsRow = db.prepare(`
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN d.cost_free = 1 THEN COALESCE(s.lf_equivalent_cost_dollars, 0)
+          ELSE MAX(0, COALESCE(s.fixed_rate_cost_dollars, 0) - COALESCE(s.actual_cost_dollars, 0))
+        END
+      ), 0) AS total_savings
+      FROM maeving_sessions s
+      JOIN maeving_devices d ON d.id = s.device_id
+      WHERE s.status IN ('complete', 'charger_complete')
+    `).get();
+    db.prepare('UPDATE maeving_config SET running_savings_dollars = MAX(0, ?) WHERE id = 1').run(
+      savingsRow?.total_savings ?? 0,
+    );
+
+    // Recompute avg_wh_per_mile from remaining sessions
+    const whRows = db.prepare(`
+      SELECT leg_1_wh_per_mile, leg_2_wh_per_mile, leg_3_wh_per_mile, leg_4_wh_per_mile,
+             leg_5_wh_per_mile, leg_6_wh_per_mile, leg_7_wh_per_mile, leg_8_wh_per_mile
+      FROM maeving_sessions
+    `).all();
+    const allWh = [];
+    for (const row of whRows) {
+      for (const col of ['leg_1_wh_per_mile','leg_2_wh_per_mile','leg_3_wh_per_mile','leg_4_wh_per_mile',
+                          'leg_5_wh_per_mile','leg_6_wh_per_mile','leg_7_wh_per_mile','leg_8_wh_per_mile']) {
+        if (row[col] != null) allWh.push(row[col]);
+      }
+    }
+    if (allWh.length > 0) {
+      const avg = allWh.reduce((s, v) => s + v, 0) / allWh.length;
+      db.prepare('UPDATE maeving_config SET avg_wh_per_mile = ? WHERE id = 1').run(avg);
+    }
+
+    return reply.code(204).send();
   });
 
   // GET /api/maeving/sessions/:id/taper

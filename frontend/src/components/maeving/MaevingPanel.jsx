@@ -3,6 +3,7 @@ import {
   calibrateSession,
   deleteCalibrationEntry,
   deleteRide,
+  deleteSession,
   finishRide,
   getConfig,
   getDevices,
@@ -137,10 +138,10 @@ export function MaevingPanel() {
   const [socStart, setSocStart] = useState(50);
   const [socTarget, setSocTarget] = useState(90);
   const [legs, setLegs] = useState([{ trip_id: '', duration_min: '' }]);
-  const [chargeMode, setChargeMode] = useState('now');
-  const [departureTime, setDepartureTime] = useState('07:30');
+  const [schedulingOvernight, setSchedulingOvernight] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [deleteSessionConfirmId, setDeleteSessionConfirmId] = useState(null);
   const [error, setError] = useState('');
   const [calibrateSOC, setCalibrateSOC] = useState(100);
   const [calibrationResult, setCalibrationResult] = useState(null);
@@ -319,8 +320,6 @@ export function MaevingPanel() {
   const isOverLimit = totalLegCount > 8;
 
   function resetPlugInForm() {
-    setChargeMode('now');
-    setDepartureTime('07:30');
     setError('');
     setLegs([{ trip_id: '', duration_min: '' }]);
     setPendingRides([]);
@@ -380,14 +379,8 @@ export function MaevingPanel() {
     return legData;
   }
 
-  async function consumeCheckedRides() {
-    const ids = [...checkedRideIds];
-    if (ids.length === 0) return;
-    Promise.all(ids.map((id) => deleteRide(id))).catch(() => {});
-  }
-
   async function handleChargeNow() {
-    if (!selectedId || starting) return;
+    if (!selectedId || starting || schedulingOvernight) return;
     setStarting(true);
     setError('');
     try {
@@ -398,7 +391,6 @@ export function MaevingPanel() {
         charge_mode: 'now',
         ...buildLegData(),
       });
-      consumeCheckedRides();
       setActiveSessions((prev) => ({ ...prev, [selectedId]: session }));
       resetPlugInForm();
     } catch (err) {
@@ -409,8 +401,8 @@ export function MaevingPanel() {
   }
 
   async function handleScheduleOvernight() {
-    if (!selectedId || starting) return;
-    setStarting(true);
+    if (!selectedId || starting || schedulingOvernight) return;
+    setSchedulingOvernight(true);
     setError('');
     try {
       const session = await startSession({
@@ -418,22 +410,19 @@ export function MaevingPanel() {
         soc_start_pct: socStart,
         soc_target_pct: socTarget,
         charge_mode: 'scheduled',
-        departure_time: departureTime,
         ...buildLegData(),
       });
 
-      consumeCheckedRides();
       setActiveSessions((prev) => ({ ...prev, [selectedId]: session }));
 
-      await scheduleOvernight(session.id, { departure_time: departureTime });
+      await scheduleOvernight(session.id, {});
       await refresh();
 
-      setChargeMode('now');
       setError('');
     } catch (err) {
       setError(err.message);
     } finally {
-      setStarting(false);
+      setSchedulingOvernight(false);
     }
   }
 
@@ -538,6 +527,16 @@ export function MaevingPanel() {
     }
   }
 
+  async function handleDeleteSession(id) {
+    try {
+      await deleteSession(id);
+      setDeleteSessionConfirmId(null);
+      await refresh();
+    } catch (err) {
+      console.error('Failed to delete session', err);
+    }
+  }
+
   // ── Add ride helper ──────────────────────────────────────────────────────────
 
   async function handleAddRide() {
@@ -626,6 +625,27 @@ export function MaevingPanel() {
         setTelemetryLoading(false);
       }
     }
+  }
+
+  function formatScheduledDuration(socStart, socTarget, effectiveCapacity) {
+    const wh = Math.max(0, ((socTarget - socStart) / 100) * (effectiveCapacity ?? TOTAL_WH));
+    const min = (wh / 1200) * 60;
+    const h = Math.floor(min / 60);
+    const m = Math.round(min % 60);
+    if (h === 0 && m === 0) return '< 1m';
+    if (h === 0) return `${m}m`;
+    if (m === 0) return `${h}h`;
+    return `${h}h ${m}m`;
+  }
+
+  function isRideActivelyCharging(rideId) {
+    for (const session of Object.values(activeSessions)) {
+      if (session.status !== 'active') continue;
+      for (let n = 1; n <= 8; n++) {
+        if (session[`leg_${n}_ride_id`] === rideId) return true;
+      }
+    }
+    return false;
   }
 
   const isScheduled = activeSession?.status === 'scheduled';
@@ -808,18 +828,26 @@ export function MaevingPanel() {
 
               {isScheduled ? (
                 <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-4 text-sm text-slate-300">
-                  Plug will turn on at{' '}
+                  Charging from{' '}
                   <span className="font-semibold text-slate-100">
-                    {activeSession.scheduled_start_at ? `${formatCtTime(activeSession.scheduled_start_at)} CT` : 'pending…'}
+                    {activeSession.soc_start_pct ?? '—'}%
+                  </span>{' '}
+                  to{' '}
+                  <span className="font-semibold text-slate-100">
+                    {activeSession.soc_target_pct ?? '—'}%
+                  </span>{' '}
+                  at{' '}
+                  <span className="font-semibold text-slate-100">
+                    {activeSession.scheduled_start_at ? `${formatCtTime(activeSession.scheduled_start_at)} CT` : '2:00 AM CT'}
                   </span>
-                  {activeSession.departure_time && (
-                    <>
-                      {'. '}Ready by{' '}
-                      <span className="font-semibold text-slate-100">
-                        {activeSession.departure_time}
-                      </span>.
-                    </>
-                  )}
+                  {' — estimated '}
+                  <span className="font-semibold text-slate-100">
+                    {formatScheduledDuration(
+                      activeSession.soc_start_pct ?? 0,
+                      activeSession.soc_target_pct ?? 100,
+                      config?.effective_capacity_wh,
+                    )}
+                  </span>
                 </div>
               ) : (
                 <div
@@ -1153,19 +1181,6 @@ export function MaevingPanel() {
                 </div>
               )}
 
-              {/* Overnight departure time */}
-              {chargeMode === 'overnight' && (
-                <div className="flex flex-wrap items-center gap-3">
-                  <label className="text-sm text-slate-400">Ready by</label>
-                  <input
-                    type="time"
-                    className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200 focus:outline-none"
-                    value={departureTime}
-                    onChange={(e) => setDepartureTime(e.target.value)}
-                  />
-                </div>
-              )}
-
               {error && (
                 <div className="rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
                   {error}
@@ -1174,47 +1189,26 @@ export function MaevingPanel() {
 
               {/* Charge mode buttons — hidden when calibration is blocking */}
               {!isCalibrationBlocking && (
-                chargeMode === 'now' ? (
-                  <div className={selectedDevice?.site_key === 'LF' ? '' : 'grid grid-cols-2 gap-3'}>
-                    <button
-                      type="button"
-                      onClick={handleChargeNow}
-                      disabled={starting || isOverLimit}
-                      className={`min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60${selectedDevice?.site_key === 'LF' ? ' w-full' : ''}`}
-                    >
-                      {starting ? 'Logging…' : 'Charge Now'}
-                    </button>
-                    {selectedDevice?.site_key !== 'LF' && (
-                      <button
-                        type="button"
-                        onClick={() => setChargeMode('overnight')}
-                        disabled={starting}
-                        className="min-h-14 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
-                      >
-                        Charge Overnight
-                      </button>
-                    )}
-                  </div>
-                ) : (
-                  <div className="grid grid-cols-2 gap-3">
+                <div className={selectedDevice?.site_key === 'LF' ? '' : 'grid grid-cols-2 gap-3'}>
+                  <button
+                    type="button"
+                    onClick={handleChargeNow}
+                    disabled={starting || schedulingOvernight || isOverLimit}
+                    className={`min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60${selectedDevice?.site_key === 'LF' ? ' w-full' : ''}`}
+                  >
+                    {starting ? 'Logging…' : 'Charge Now'}
+                  </button>
+                  {selectedDevice?.site_key !== 'LF' && (
                     <button
                       type="button"
                       onClick={handleScheduleOvernight}
-                      disabled={starting || isOverLimit}
-                      className="min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60"
-                    >
-                      {starting ? 'Scheduling…' : 'Schedule Overnight Charge'}
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setChargeMode('now')}
-                      disabled={starting}
+                      disabled={starting || schedulingOvernight || isOverLimit}
                       className="min-h-14 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
                     >
-                      Cancel
+                      {schedulingOvernight ? 'Scheduling…' : 'Charge Overnight'}
                     </button>
-                  </div>
-                )
+                  )}
+                </div>
               )}
             </div>
           )}
@@ -1244,6 +1238,35 @@ export function MaevingPanel() {
                 session.calibration_complete === 0 &&
                 (session.status === 'complete' || session.status === 'charger_complete');
               const rowClass = getSessionRowClass(session, device);
+              const isConfirmingDelete = deleteSessionConfirmId === session.id;
+
+              if (isConfirmingDelete) {
+                return (
+                  <div key={session.id} className="flex items-center justify-between gap-3 rounded-2xl border border-red-800/50 bg-red-950/20 px-4 py-3 text-sm">
+                    <span className="text-slate-300">
+                      Delete <span className="font-semibold text-slate-100">{device?.site_key ?? '?'}</span> session from{' '}
+                      <span className="font-semibold text-slate-100">{formatDate(session.started_at)}</span>?
+                    </span>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => handleDeleteSession(session.id)}
+                        className="rounded-xl bg-red-700 px-4 py-1.5 text-sm font-semibold text-white hover:bg-red-600"
+                      >
+                        Delete
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDeleteSessionConfirmId(null)}
+                        className="rounded-xl border border-[color:var(--color-border)] px-4 py-1.5 text-sm text-slate-400 hover:border-slate-500"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  </div>
+                );
+              }
+
               return (
                 <div
                   key={session.id}
@@ -1284,35 +1307,16 @@ export function MaevingPanel() {
                             vs Fixed: ${session.lf_equivalent_fixed_dollars.toFixed(2)}
                           </span>
                         )}
-                        {session.rebel_cost_total != null && (
-                          <span className={"text-amber-400"}>
-                            vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
-                          </span>
-                        )}
                       </span>
                     ) : (
                       <span className="text-slate-400">$0.00</span>
                     )
-                  ) : session.rebel_cost_total != null && session.actual_cost_dollars != null ? (
+                  ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
                     <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
                       <span className="text-green-400">
                         Hourly: ${session.actual_cost_dollars.toFixed(2)}
                       </span>
-                      {session.fixed_rate_cost_dollars != null && (
-                        <span className="text-amber-400">
-                          Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
-                        </span>
-                      )}
-                      <span className={"text-amber-400"}>
-                        vs Rebel 250: ${session.rebel_cost_total.toFixed(2)}
-                      </span>
-                    </span>
-                  ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
-                    <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
-                      <span className="text-slate-400">
-                        Hourly: ${session.actual_cost_dollars.toFixed(2)}
-                      </span>
-                      <span className="text-slate-500">
+                      <span className="text-amber-400">
                         Fixed: ${session.fixed_rate_cost_dollars.toFixed(2)}
                       </span>
                       <span
@@ -1338,6 +1342,14 @@ export function MaevingPanel() {
                   ) : (
                     <span className="text-slate-400">—</span>
                   )}
+                  <button
+                    type="button"
+                    onClick={() => setDeleteSessionConfirmId(session.id)}
+                    className="ml-1 rounded p-1 text-slate-600 transition-colors hover:text-red-400"
+                    title="Delete session"
+                  >
+                    🗑
+                  </button>
                 </div>
               );
             })}
@@ -1653,13 +1665,21 @@ export function MaevingPanel() {
                   );
                 }
 
+                const charging = isRideActivelyCharging(ride.id);
                 return (
                   <div
                     key={ride.id}
                     className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-amber-700/50 bg-amber-950/30 px-4 py-3 text-sm"
                   >
                     <div className="flex flex-col gap-0.5 min-w-0">
-                      <span className="font-semibold text-yellow-400">{ride.trip_name}</span>
+                      <span className="flex items-center gap-2 font-semibold text-yellow-400">
+                        {ride.trip_name}
+                        {charging && (
+                          <span className="animate-pulse rounded-full bg-emerald-500/20 px-2 py-0.5 text-xs font-normal text-emerald-400 ring-1 ring-emerald-500/40">
+                            Currently Charging
+                          </span>
+                        )}
+                      </span>
                       <span className="text-xs text-slate-500">
                         {new Date(ride.started_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
                         {' · '}
