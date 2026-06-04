@@ -723,6 +723,33 @@ export function MaevingPanel() {
         );
       })()}
 
+      {/* Device selector + plug-in form (gated when calibration is pending) */}
+      {config?.hasPendingCalibration ? (
+        <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
+          <p className="text-sm text-slate-400 text-center py-4">
+            Start a ride to record the bike's current SOC and unlock charging controls.
+          </p>
+          {config?.pendingSession?.id && (
+            <div className="flex justify-center mt-1">
+              <button
+                type="button"
+                className="text-xs text-slate-600 hover:text-slate-400 underline underline-offset-2"
+                onClick={async () => {
+                  try {
+                    await skipCalibration(config.pendingSession.id);
+                    await refresh();
+                  } catch (err) {
+                    console.error('skip calibration failed', err);
+                  }
+                }}
+              >
+                Skip calibration
+              </button>
+            </div>
+          )}
+        </section>
+      ) : (
+      <>
       {/* Device selector */}
       <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-4 sm:p-6">
         <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
@@ -1192,6 +1219,8 @@ export function MaevingPanel() {
             </div>
           )}
         </section>
+      )}
+      </>
       )}
 
       {/* Recent Charge Sessions */}
