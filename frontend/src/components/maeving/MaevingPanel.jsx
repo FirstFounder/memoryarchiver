@@ -13,7 +13,6 @@ import {
   getSessionRideTelemetry,
   getSessionTaper,
   scheduleOvernight,
-  startRide,
   startSession,
   stopSession,
   updateRide,
@@ -152,9 +151,6 @@ export function MaevingPanel() {
   const [editRideForm, setEditRideForm] = useState({});
   const [rideEditError, setRideEditError] = useState('');
   const [deleteRideConfirmId, setDeleteRideConfirmId] = useState(null);
-  const [addingRide, setAddingRide] = useState(false);
-  const [addRideForm, setAddRideForm] = useState({ trip_id: '', started_at: '', finished_at: '', start_soc_pct: '', end_soc_pct: '', notes: '' });
-  const [addRideError, setAddRideError] = useState('');
   // Notes dialog
   const [noteMode, setNoteMode] = useState('display');
   const [noteRideId, setNoteRideId] = useState(null);
@@ -483,33 +479,6 @@ export function MaevingPanel() {
   }
 
   // ── Add ride helper ──────────────────────────────────────────────────────────
-
-  async function handleAddRide() {
-    setAddRideError('');
-    const { trip_id, started_at, finished_at, start_soc_pct, end_soc_pct, notes } = addRideForm;
-    if (!trip_id || !started_at || !finished_at || start_soc_pct === '' || end_soc_pct === '') {
-      setAddRideError('All fields are required.');
-      return;
-    }
-    if (new Date(finished_at) <= new Date(started_at)) {
-      setAddRideError('End time must be after start time.');
-      return;
-    }
-    try {
-      const ride = await startRide({ trip_id: Number(trip_id), start_soc_pct: Number(start_soc_pct) });
-      await finishRide(ride.id, { end_soc_pct: Number(end_soc_pct) });
-      await updateRide(ride.id, {
-        started_at: new Date(started_at).toISOString(),
-        finished_at: new Date(finished_at).toISOString(),
-        notes: notes || null,
-      });
-      setAddingRide(false);
-      setAddRideForm({ trip_id: '', started_at: '', finished_at: '', start_soc_pct: '', end_soc_pct: '', notes: '' });
-      await refresh();
-    } catch (err) {
-      setAddRideError(err.message);
-    }
-  }
 
   // ── Calibration history delete ───────────────────────────────────────────────
 
@@ -1218,7 +1187,7 @@ export function MaevingPanel() {
         }
         const recentTripLegs = tripLegRows.slice(0, 10);
 
-        if (recentTripLegs.length === 0 && recentPendingRides.length === 0 && !addingRide) return null;
+        if (recentTripLegs.length === 0 && recentPendingRides.length === 0) return null;
 
         const hasLFRow = recentTripLegs.some((r) => devices.find((d) => d.id === r.session.device_id)?.cost_free);
 
@@ -1229,102 +1198,12 @@ export function MaevingPanel() {
             </p>
             <div className="flex flex-col gap-2">
 
-              {/* Pending rides header + Add Ride button */}
-              {recentPendingRides.length > 0 || addingRide ? (
-                <div className="mb-2 flex items-center justify-between">
+              {/* Pending rides header */}
+              {recentPendingRides.length > 0 && (
+                <div className="mb-2">
                   <span className="text-xs font-semibold uppercase tracking-[0.2em] text-yellow-500">
                     Pending Rides
                   </span>
-                  {!addingRide && (
-                    <button
-                      type="button"
-                      onClick={() => { setAddingRide(true); setAddRideError(''); }}
-                      className="rounded-xl border border-[color:var(--color-border)] px-3 py-1 text-xs text-slate-300 hover:border-slate-500"
-                    >
-                      + Add Ride
-                    </button>
-                  )}
-                </div>
-              ) : (
-                <div className="mb-2 flex justify-end">
-                  <button
-                    type="button"
-                    onClick={() => { setAddingRide(true); setAddRideError(''); }}
-                    className="rounded-xl border border-[color:var(--color-border)] px-3 py-1 text-xs text-slate-300 hover:border-slate-500"
-                  >
-                    + Add Ride
-                  </button>
-                </div>
-              )}
-
-              {/* Add Ride inline form */}
-              {addingRide && (
-                <div className="mb-3 rounded-2xl border border-yellow-700/50 bg-yellow-950/20 px-4 py-3">
-                  <div className="flex flex-wrap gap-2 items-end">
-                    <select
-                      className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200"
-                      value={addRideForm.trip_id}
-                      onChange={e => setAddRideForm(f => ({ ...f, trip_id: e.target.value }))}
-                    >
-                      <option value="">Select Leg</option>
-                      {trips.filter(t => !t.hidden).map(t => (
-                        <option key={t.id} value={t.id}>{t.description} ({t.distance_miles} mi)</option>
-                      ))}
-                    </select>
-                    <label className="flex flex-col text-xs text-slate-400 gap-1">
-                      Start
-                      <input
-                        type="datetime-local"
-                        className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
-                        value={addRideForm.started_at}
-                        onChange={e => setAddRideForm(f => ({ ...f, started_at: e.target.value }))}
-                      />
-                    </label>
-                    <label className="flex flex-col text-xs text-slate-400 gap-1">
-                      End
-                      <input
-                        type="datetime-local"
-                        className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
-                        value={addRideForm.finished_at}
-                        onChange={e => setAddRideForm(f => ({ ...f, finished_at: e.target.value }))}
-                      />
-                    </label>
-                    <label className="flex flex-col text-xs text-slate-400 gap-1">
-                      Start SOC %
-                      <input
-                        type="number" min="0" max="100"
-                        className="w-20 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
-                        value={addRideForm.start_soc_pct}
-                        onChange={e => setAddRideForm(f => ({ ...f, start_soc_pct: e.target.value }))}
-                      />
-                    </label>
-                    <label className="flex flex-col text-xs text-slate-400 gap-1">
-                      End SOC %
-                      <input
-                        type="number" min="0" max="100"
-                        className="w-20 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-2 py-1.5 text-sm text-slate-200"
-                        value={addRideForm.end_soc_pct}
-                        onChange={e => setAddRideForm(f => ({ ...f, end_soc_pct: e.target.value }))}
-                      />
-                    </label>
-                    <button
-                      type="button"
-                      onClick={handleAddRide}
-                      className="rounded-xl bg-[color:var(--color-accent)] px-4 py-2 text-sm font-semibold text-white hover:bg-[color:var(--color-accent-hover)]"
-                    >
-                      Save
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => { setAddingRide(false); setAddRideError(''); }}
-                      className="rounded-xl border border-[color:var(--color-border)] px-4 py-2 text-sm text-slate-400 hover:border-slate-500"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                  {addRideError && (
-                    <p className="mt-2 text-xs text-red-400">{addRideError}</p>
-                  )}
                 </div>
               )}
 
@@ -1572,7 +1451,7 @@ export function MaevingPanel() {
               })}
 
               {/* Separator between pending and completed */}
-              {(recentPendingRides.length > 0 || addingRide) && recentTripLegs.length > 0 && (
+              {recentPendingRides.length > 0 && recentTripLegs.length > 0 && (
                 <hr className="border-t border-[color:var(--color-border)] my-2" />
               )}
 
