@@ -157,3 +157,7 @@ export async function getSessionRideTelemetry(sessionId) {
 export async function deleteSession(id) {
   return apiFetch(`/api/maeving/sessions/${id}`, { method: 'DELETE' });
 }
+
+export async function getSessionCurve(sessionId) {
+  return apiFetch(`/api/maeving/sessions/${sessionId}/curve`);
+}

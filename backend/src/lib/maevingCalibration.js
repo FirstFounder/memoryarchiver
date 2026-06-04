@@ -156,6 +156,86 @@ export function skipCalibration(sessionId) {
   return db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(sessionId);
 }
 
+export function computeChargeCurve(sessionId, db) {
+  const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(sessionId);
+  if (!session || session.wh_delivered == null) return null;
+
+  const readings = db.prepare(`
+    SELECT recorded_at, apower, aenergy_total
+    FROM maeving_readings
+    WHERE device_id = ?
+      AND recorded_at >= datetime(?)
+      AND (? IS NULL OR recorded_at <= datetime(?))
+    ORDER BY recorded_at ASC
+  `).all(session.device_id, session.started_at, session.ended_at ?? null, session.ended_at ?? null);
+
+  if (readings.length < 10) return null;
+
+  const firstTs = new Date(readings[0].recorded_at).getTime();
+  const enriched = readings.map(r => ({
+    minutes: (new Date(r.recorded_at).getTime() - firstTs) / 60_000,
+    watts: r.apower ?? 0,
+    aenergy_total: r.aenergy_total,
+  }));
+
+  const peakWatts = Math.max(...enriched.map(r => r.watts));
+  if (peakWatts < 800) return null;
+
+  const threshold = peakWatts * 0.92;
+  let taperOnsetIdx = null;
+
+  for (let i = 4; i < enriched.length; i++) {
+    if (enriched[i].minutes < 5) continue;
+    if (enriched.slice(i - 4, i + 1).every(r => r.watts < threshold)) {
+      taperOnsetIdx = i - 4;
+      break;
+    }
+  }
+
+  let taperOnsetWhDelivered = null;
+  let taperOnsetSocPct = null;
+  let taperOnsetWatts = null;
+  let taperOnsetMinutes = null;
+
+  if (taperOnsetIdx !== null) {
+    const onset = enriched[taperOnsetIdx];
+    const baselineEnergy = enriched[0].aenergy_total ?? 0;
+    taperOnsetWhDelivered = Math.max(0, (onset.aenergy_total ?? 0) - baselineEnergy);
+    taperOnsetWatts = onset.watts;
+    taperOnsetMinutes = onset.minutes;
+
+    const cfg = db.prepare('SELECT effective_capacity_wh FROM maeving_config WHERE id = 1').get();
+    const effectiveCapacityWh = cfg?.effective_capacity_wh ?? 2880;
+    if (session.soc_start_pct != null && effectiveCapacityWh > 0) {
+      taperOnsetSocPct = session.soc_start_pct + (taperOnsetWhDelivered / effectiveCapacityWh) * 100;
+    }
+  }
+
+  let timelinePoints = enriched;
+  if (enriched.length > 60) {
+    const step = (enriched.length - 1) / 59;
+    timelinePoints = Array.from({ length: 60 }, (_, i) => enriched[Math.round(i * step)]);
+  }
+  const powerTimelineJson = JSON.stringify(
+    timelinePoints.map(r => ({ t: Math.round(r.minutes * 10) / 10, w: Math.round(r.watts) })),
+  );
+
+  db.prepare('DELETE FROM maeving_charge_curves WHERE session_id = ?').run(sessionId);
+  const result = db.prepare(`
+    INSERT INTO maeving_charge_curves (
+      session_id, device_id,
+      taper_onset_wh_delivered, taper_onset_soc_pct, taper_onset_watts, taper_onset_minutes,
+      peak_watts_session, readings_count, power_timeline_json
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    sessionId, session.device_id,
+    taperOnsetWhDelivered, taperOnsetSocPct, taperOnsetWatts, taperOnsetMinutes,
+    peakWatts, readings.length, powerTimelineJson,
+  );
+
+  return db.prepare('SELECT * FROM maeving_charge_curves WHERE id = ?').get(result.lastInsertRowid);
+}
+
 export function analyzeTaper(sessionId) {
   const readings = db.prepare(`
     SELECT * FROM maeving_taper_readings

@@ -17,6 +17,7 @@ import {
   recordSessionComplete,
   skipCalibration,
   findDeferredCalibration,
+  computeChargeCurve,
 } from '../../lib/maevingCalibration.js';
 import { computeRebelCostSync } from '../../lib/eiaGasPrice.js';
 
@@ -985,6 +986,12 @@ export default async function maevingRoutes(fastify) {
     `).run(session.id);
     recordSessionComplete(session.id);
 
+    try {
+      computeChargeCurve(session.id, db);
+    } catch (err) {
+      fastify.log.warn({ err }, 'computeChargeCurve failed — non-fatal');
+    }
+
     // Consume rides that were prestaged for this session
     for (let n = 1; n <= 8; n++) {
       const rideId = session[`leg_${n}_ride_id`];
@@ -1054,6 +1061,25 @@ export default async function maevingRoutes(fastify) {
       JOIN maeving_devices d ON d.id = s.device_id
       WHERE s.status IN ('complete', 'charger_complete')
     `).get();
+    const taperOnsetByDevice = db.prepare(`
+      SELECT c.device_id, d.label AS device_label,
+             ROUND(AVG(c.taper_onset_soc_pct), 1) AS avg_taper_onset_soc,
+             COUNT(*) AS curve_count
+      FROM maeving_charge_curves c
+      JOIN maeving_devices d ON d.id = c.device_id
+      WHERE c.taper_onset_soc_pct IS NOT NULL
+      GROUP BY c.device_id
+    `).all();
+
+    const latestCurveRow = db.prepare(`
+      SELECT c.*, d.label AS device_label, d.site_key
+      FROM maeving_charge_curves c
+      JOIN maeving_devices d ON d.id = c.device_id
+      WHERE c.power_timeline_json IS NOT NULL
+      ORDER BY c.recorded_at DESC
+      LIMIT 1
+    `).get();
+
     return reply.send({
       ...cfg,
       hasPendingCalibration: pending !== null,
@@ -1062,6 +1088,13 @@ export default async function maevingRoutes(fastify) {
       total_wh_added: totals.total_wh_added,
       total_money_spent: totals.total_money_spent,
       total_rebel_cost: totals.total_rebel_cost,
+      taperOnsetByDevice,
+      latestChargeCurve: latestCurveRow ? {
+        ...latestCurveRow,
+        power_timeline_json: latestCurveRow.power_timeline_json
+          ? JSON.parse(latestCurveRow.power_timeline_json)
+          : null,
+      } : null,
     });
   });
 
@@ -1149,6 +1182,18 @@ export default async function maevingRoutes(fastify) {
     }
 
     return reply.code(204).send();
+  });
+
+  // GET /api/maeving/sessions/:id/curve
+  fastify.get('/api/maeving/sessions/:id/curve', async (req, reply) => {
+    const session = db.prepare('SELECT id FROM maeving_sessions WHERE id = ?').get(req.params.id);
+    if (!session) return reply.code(404).send({ error: 'not found' });
+    const row = db.prepare('SELECT * FROM maeving_charge_curves WHERE session_id = ?').get(session.id);
+    if (!row) return reply.send(null);
+    return reply.send({
+      ...row,
+      power_timeline_json: row.power_timeline_json ? JSON.parse(row.power_timeline_json) : null,
+    });
   });
 
   // GET /api/maeving/sessions/:id/taper

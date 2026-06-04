@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { AreaChart, Area, ReferenceLine, ResponsiveContainer } from 'recharts';
 import {
   deleteCalibrationEntry,
   deleteRide,
@@ -141,6 +142,7 @@ export function MaevingPanel() {
   const [error, setError] = useState('');
   const [taperData, setTaperData] = useState(null);
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
+  const [showChargeCurve, setShowChargeCurve] = useState(true);
   const [confirmDeleteCalIdx, setConfirmDeleteCalIdx] = useState(null);
   // Prestaged rides (plug-in form)
   const [pendingRides, setPendingRides] = useState([]);
@@ -1687,6 +1689,89 @@ export function MaevingPanel() {
                 {Math.round(config.effective_capacity_wh ?? TOTAL_WH).toLocaleString()} Wh (n=
                 {config.observation_count} observations)
               </p>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* Charge Curve */}
+      {config && (config.taperOnsetByDevice?.length > 0 || config.latestChargeCurve != null) && (
+        <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
+          <div className="mb-4 flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setShowChargeCurve((prev) => !prev)}
+              className="text-sm text-slate-500 transition-colors hover:text-slate-300"
+            >
+              {showChargeCurve ? '▾' : '▸'}
+            </button>
+            <p className="text-sm font-medium text-slate-300">
+              Charge Curve
+            </p>
+          </div>
+          {showChargeCurve && (
+            <>
+              {config.taperOnsetByDevice?.length > 0 && (
+                <>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-xs">
+                      <thead>
+                        <tr className="text-left text-slate-400">
+                          <th className="pb-2 pr-4">Device</th>
+                          <th className="pb-2 pr-4">Avg Taper Onset</th>
+                          <th className="pb-2">Sessions</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {config.taperOnsetByDevice.map((row) => (
+                          <tr key={row.device_id} className="border-b border-slate-700 text-slate-300">
+                            <td className="py-2 pr-4">{row.device_label}</td>
+                            <td className="py-2 pr-4">{row.avg_taper_onset_soc != null ? `${row.avg_taper_onset_soc}%` : '—'}</td>
+                            <td className="py-2">{row.curve_count} sessions</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p className="mt-2 text-xs text-slate-500">
+                    Taper onset is where the charger transitions from constant-current to constant-voltage
+                    phase. Charging above this point delivers diminishing power. Values converge with more
+                    full-range sessions.
+                  </p>
+                </>
+              )}
+              {config.latestChargeCurve?.power_timeline_json && (
+                <div className="mt-4">
+                  <p className="mb-1 text-xs text-slate-400">
+                    Latest session · {config.latestChargeCurve.device_label} · {formatDate(config.latestChargeCurve.recorded_at)}
+                  </p>
+                  <ResponsiveContainer width="100%" height={80}>
+                    <AreaChart data={config.latestChargeCurve.power_timeline_json} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                      <Area
+                        type="monotone"
+                        dataKey="w"
+                        stroke="#60a5fa"
+                        fill="#60a5fa"
+                        fillOpacity={0.2}
+                        dot={false}
+                        strokeWidth={1.5}
+                        isAnimationActive={false}
+                      />
+                      {config.latestChargeCurve.taper_onset_minutes != null && (() => {
+                        const timeline = config.latestChargeCurve.power_timeline_json;
+                        const taperIdx = timeline.findIndex(p => p.t >= config.latestChargeCurve.taper_onset_minutes);
+                        return taperIdx >= 0 ? (
+                          <ReferenceLine
+                            x={taperIdx}
+                            stroke="#f87171"
+                            label={{ value: 'Taper', fontSize: 10, fill: '#f87171', position: 'top' }}
+                          />
+                        ) : null;
+                      })()}
+                    </AreaChart>
+                  </ResponsiveContainer>
+                </div>
+              )}
             </>
           )}
         </section>
