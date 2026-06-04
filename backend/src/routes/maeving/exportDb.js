@@ -31,7 +31,7 @@ export default async function maevingExportDbRoutes(fastify) {
         .map((r) => r.name);
 
       for (const tableName of allTables) {
-        if (!keepTables.has(tableName)) {
+        if (!keepTables.has(tableName) && !tableName.startsWith('sqlite_')) {
           tmpDb.prepare(`DROP TABLE IF EXISTS "${tableName}"`).run();
         }
       }
