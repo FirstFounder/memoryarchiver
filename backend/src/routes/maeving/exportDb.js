@@ -24,7 +24,6 @@ export default async function maevingExportDbRoutes(fastify) {
       await db.backup(tmpPath);
 
       const tmpDb = new Database(tmpPath);
-      tmpDb.pragma('journal_mode = WAL');
 
       const allTables = tmpDb
         .prepare("SELECT name FROM sqlite_master WHERE type='table'")
@@ -62,7 +61,7 @@ export default async function maevingExportDbRoutes(fastify) {
     } catch (err) {
       fs.unlink(tmpPath, () => {});
       req.log.error(err, 'Maeving DB export failed');
-      return reply.code(500).send({ error: 'Export failed' });
+      return reply.code(500).send({ error: 'Export failed', detail: err.message });
     }
   });
 }
