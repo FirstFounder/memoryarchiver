@@ -772,9 +772,18 @@ export function MaevingPanel() {
       <>
       {/* Device selector */}
       <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-4 sm:p-6">
-        <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
-          Maeving RM1S
-        </p>
+        <div className="mb-4 flex items-center">
+          <p className="text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
+            Maeving RM1S
+          </p>
+          <a
+            href="/api/maeving/export-db"
+            download
+            className="ml-auto text-xs px-2 py-1 rounded border border-slate-600 text-slate-400 hover:text-slate-200 hover:border-slate-400 transition-colors"
+          >
+            Export DB
+          </a>
+        </div>
         <div className="grid grid-cols-3 gap-3 sm:flex sm:flex-wrap">
           {devices.map((device) => {
             const isSelected = device.id === selectedId;

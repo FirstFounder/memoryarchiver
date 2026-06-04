@@ -1,5 +1,6 @@
 import config from '../../config.js';
 import db from '../../db/client.js';
+import exportDbRoutes from './exportDb.js';
 import { getAllDeviceStates, getDeviceState, invalidateActiveSessionCache, notifyRideStarted, notifyRideFinished, getActiveRideId } from '../../lib/maevingMqtt.js';
 import { fetchCurrentHourPrice } from '../../lib/coMedPrices.js';
 import { setPlugState } from '../../lib/maevingControl.js';
@@ -58,6 +59,8 @@ function readingsStats(deviceId, startedAt) {
 
 export default async function maevingRoutes(fastify) {
   if (!config.maevingEnabled) return;
+
+  await fastify.register(exportDbRoutes);
 
   // ── Devices ───────────────────────────────────────────────────────────────────
 
