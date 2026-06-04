@@ -90,30 +90,6 @@ function formatTimeRange(startedAt, finishedAt) {
   return `${fmt(startedAt)}–${fmt(finishedAt)}`;
 }
 
-function computeLocalTripStats(legs, trips, config, socStart) {
-  if (!config) return null;
-  const validLegs = legs.filter((l) => l.trip_id !== '');
-  if (!validLegs.length) return null;
-
-  const aggregateDist = validLegs.reduce((sum, leg) => {
-    const trip = trips.find((t) => t.id === Number(leg.trip_id));
-    return sum + (trip?.distance_miles ?? 0);
-  }, 0);
-
-  if (aggregateDist === 0) return null;
-  if (config.prev_max_soc_pct == null) return null;
-
-  const effectiveCapacity = config.effective_capacity_wh ?? TOTAL_WH;
-  const energyConsumedWh = ((config.prev_max_soc_pct - socStart) / 100) * effectiveCapacity;
-  const whPerMile = energyConsumedWh / aggregateDist;
-
-  return {
-    aggregate_distance_miles: aggregateDist,
-    energy_consumed_wh: energyConsumedWh,
-    wh_per_mile: whPerMile,
-    prev_max_soc_pct: config.prev_max_soc_pct,
-  };
-}
 
 function getSessionRowClass(session, device) {
   if (device?.cost_free) return 'bg-orange-950/30 border-orange-800/40';
@@ -134,7 +110,6 @@ export function MaevingPanel() {
   const [config, setConfig] = useState(null);
   const [socStart, setSocStart] = useState(50);
   const [socTarget, setSocTarget] = useState(90);
-  const [legs, setLegs] = useState([{ trip_id: '', duration_min: '' }]);
   const [schedulingOvernight, setSchedulingOvernight] = useState(false);
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -286,23 +261,13 @@ export function MaevingPanel() {
   const liveState = selectedDevice?.live ?? null;
   const liveApower = liveState?.apower ?? 0;
 
-  const tripStats = computeLocalTripStats(legs, trips, config, socStart);
-
-  // Leg limit accounting
   const checkedCount = checkedRideIds.size;
-  const manualLegsWithTrip = legs.filter((l) => l.trip_id !== '').length;
-  const totalLegCount = checkedCount + manualLegsWithTrip;
-  const isOverLimit = totalLegCount > 8;
+  const isOverLimit = checkedCount > 8;
 
   function resetPlugInForm() {
     setError('');
-    setLegs([{ trip_id: '', duration_min: '' }]);
     setPendingRides([]);
     setCheckedRideIds(new Set());
-  }
-
-  function updateLeg(index, field, value) {
-    setLegs((prev) => prev.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
   }
 
   function toggleRideCheck(id) {
@@ -335,13 +300,6 @@ export function MaevingPanel() {
         legData[`leg_${slotIdx}_duration_min`] = Math.round(ride.duration_min);
       }
     }
-
-    legs.forEach((leg) => {
-      if (!leg.trip_id || slotIdx >= 8) return;
-      slotIdx++;
-      legData[`leg_${slotIdx}_trip_id`] = Number(leg.trip_id);
-      if (leg.duration_min) legData[`leg_${slotIdx}_duration_min`] = Number(leg.duration_min);
-    });
 
     return legData;
   }
@@ -886,81 +844,6 @@ export function MaevingPanel() {
                       </label>
                     );
                   })}
-                </div>
-              )}
-
-              {/* Over-limit warning */}
-              {isOverLimit && (
-                <div className="rounded-2xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
-                  {totalLegCount} legs selected — maximum is 8. Uncheck rides to stay within the limit.
-                </div>
-              )}
-
-              {/* Trip legs */}
-              <div className="flex flex-col gap-2">
-                {legs.map((leg, i) => (
-                  <div key={i} className="flex flex-wrap items-center gap-3">
-                    <label className="w-12 text-sm text-slate-400">
-                      Leg {checkedCount + i + 1}
-                    </label>
-                    <select
-                      className="flex-1 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200 focus:outline-none"
-                      value={leg.trip_id}
-                      onChange={(e) => {
-                        updateLeg(i, 'trip_id', e.target.value);
-                        if (!e.target.value) {
-                          updateLeg(i, 'duration_min', '');
-                        }
-                      }}
-                    >
-                      <option value="">— no trip —</option>
-                      {trips.filter((t) => !t.hidden).map((t) => (
-                        <option key={t.id} value={t.id}>
-                          {t.description} ({t.distance_miles} mi)
-                        </option>
-                      ))}
-                    </select>
-                    {leg.trip_id && (
-                      <input
-                        type="number"
-                        min="0"
-                        step="1"
-                        placeholder="Duration (min)"
-                        className="w-36 rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-3 py-2 text-sm text-slate-200 placeholder-slate-500 focus:outline-none"
-                        value={leg.duration_min}
-                        onChange={(e) => updateLeg(i, 'duration_min', e.target.value)}
-                      />
-                    )}
-                  </div>
-                ))}
-              </div>
-
-              {/* Trip statistics */}
-              {tripStats && (
-                <div className="rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 py-3">
-                  <div className="flex flex-wrap gap-5 text-sm">
-                    <span className="text-slate-400">
-                      <span className="font-semibold text-slate-200">
-                        {tripStats.aggregate_distance_miles.toFixed(1)} mi
-                      </span>{' '}
-                      total
-                    </span>
-                    <span className="text-slate-400">
-                      <span className="font-semibold text-slate-200">
-                        {formatEnergy(tripStats.energy_consumed_wh)}
-                      </span>{' '}
-                      consumed
-                    </span>
-                    <span className="text-slate-400">
-                      <span className="font-semibold text-slate-200">
-                        {tripStats.wh_per_mile.toFixed(1)} Wh/mi
-                      </span>
-                    </span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    Based on previous charge to {tripStats.prev_max_soc_pct}% — effective pack:{' '}
-                    {Math.round(config?.effective_capacity_wh ?? TOTAL_WH).toLocaleString()} Wh
-                  </p>
                 </div>
               )}
 
