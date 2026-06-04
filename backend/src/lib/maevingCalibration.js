@@ -71,7 +71,10 @@ export function recordSessionComplete(sessionId) {
   const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(sessionId);
   if (!session) return;
 
-  const socValue = session.actual_soc_pct ?? session.soc_target_pct;
+  const socValue =
+    session.actual_soc_pct ??
+    (session.estimated_soc_at_stop != null ? Math.round(session.estimated_soc_at_stop) : null) ??
+    session.soc_target_pct;
 
   db.prepare(`
     UPDATE maeving_config
@@ -79,6 +82,19 @@ export function recordSessionComplete(sessionId) {
         prev_session_id  = ?
     WHERE id = 1
   `).run(socValue, sessionId);
+}
+
+export function findDeferredCalibration() {
+  return db.prepare(`
+    SELECT * FROM maeving_sessions
+    WHERE (status = 'complete' OR status = 'charger_complete')
+      AND calibration_complete = 1
+      AND actual_soc_pct IS NULL
+      AND wh_delivered > 0
+      AND ended_at >= datetime('now', '-7 days')
+    ORDER BY ended_at DESC
+    LIMIT 1
+  `).get() ?? null;
 }
 
 export function computeTripStats(socStart, legs, devices) {

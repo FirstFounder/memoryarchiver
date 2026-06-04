@@ -2,6 +2,7 @@ import db from '../db/client.js';
 import { getPlugStatus, setPlugState } from './maevingControl.js';
 import { fetchCurrentHourPrice } from './coMedPrices.js';
 import { sessionReadingsStats, invalidateActiveSessionCache, CHARGE_COMPLETE_WATTS, CHARGE_COMPLETE_CONSECUTIVE } from './maevingMqtt.js';
+import { recordSessionComplete, getConfig } from './maevingCalibration.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
 const MAEVING_BATTERY_KWH = 2.88;
@@ -544,6 +545,10 @@ async function runScheduledSessions() {
       db.prepare(`
         UPDATE maeving_config SET running_savings_dollars = MAX(0, running_savings_dollars + ?) WHERE 1=1
       `).run(completeSavingsDelta);
+
+      // Clear calibration gate immediately; deferred observation captured at next ride start.
+      db.prepare('UPDATE maeving_sessions SET calibration_complete = 1 WHERE id = ?').run(session.id);
+      recordSessionComplete(session.id);
 
       // Consume rides that were prestaged for this session
       for (let n = 1; n <= 8; n++) {

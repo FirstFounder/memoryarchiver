@@ -1,6 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
-  calibrateSession,
   deleteCalibrationEntry,
   deleteRide,
   deleteSession,
@@ -14,7 +13,6 @@ import {
   getSessionRideTelemetry,
   getSessionTaper,
   scheduleOvernight,
-  skipCalibration,
   startRide,
   startSession,
   stopSession,
@@ -134,7 +132,6 @@ export function MaevingPanel() {
   const [recentSessions, setRecentSessions] = useState([]);
   const [trips, setTrips] = useState([]);
   const [config, setConfig] = useState(null);
-  const [pendingCalibration, setPendingCalibration] = useState(null);
   const [socStart, setSocStart] = useState(50);
   const [socTarget, setSocTarget] = useState(90);
   const [legs, setLegs] = useState([{ trip_id: '', duration_min: '' }]);
@@ -143,10 +140,6 @@ export function MaevingPanel() {
   const [stopping, setStopping] = useState(false);
   const [deleteSessionConfirmId, setDeleteSessionConfirmId] = useState(null);
   const [error, setError] = useState('');
-  const [calibrateSOC, setCalibrateSOC] = useState(100);
-  const [calibrationResult, setCalibrationResult] = useState(null);
-  const [calibrating, setCalibrating] = useState(false);
-  const [skipping, setSkipping] = useState(false);
   const [taperData, setTaperData] = useState(null);
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
   const [confirmDeleteCalIdx, setConfirmDeleteCalIdx] = useState(null);
@@ -191,7 +184,6 @@ export function MaevingPanel() {
       setTrips(tripList);
       setConfig(cfg);
       setSocStart(cfg.prev_max_soc_pct ?? 50);
-      setPendingCalibration(cfg.pendingSession ?? null);
       const map = {};
       for (const s of all.filter(
         (s) => s.status === 'active' || s.status === 'scheduled',
@@ -214,18 +206,6 @@ export function MaevingPanel() {
     const interval = setInterval(refresh, 15_000);
     return () => clearInterval(interval);
   }, [refresh]);
-
-  // Update calibrateSOC default when pending calibration changes
-  useEffect(() => {
-    if (pendingCalibration) {
-      const initSoc =
-        pendingCalibration.estimated_soc_at_stop != null
-          ? Math.round(pendingCalibration.estimated_soc_at_stop)
-          : (pendingCalibration.soc_target_pct ?? 100);
-      setCalibrateSOC(Math.min(100, Math.max(1, initSoc)));
-      setCalibrationResult(null);
-    }
-  }, [pendingCalibration?.id]);
 
   // Poll active session details for live Wh estimate
   const activeSession = activeSessions[selectedId] ?? null;
@@ -307,9 +287,6 @@ export function MaevingPanel() {
 
   const liveState = selectedDevice?.live ?? null;
   const liveApower = liveState?.apower ?? 0;
-
-  const isCalibrationBlocking =
-    config?.calibration_mode === 1 && pendingCalibration != null;
 
   const tripStats = computeLocalTripStats(legs, trips, config, socStart);
 
@@ -444,38 +421,6 @@ export function MaevingPanel() {
       setError(err.message);
     } finally {
       setStopping(false);
-    }
-  }
-
-  async function handleSkipCalibration() {
-    if (!pendingCalibration || skipping) return;
-    setSkipping(true);
-    setError('');
-    try {
-      await skipCalibration(pendingCalibration.id);
-      await refresh();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setSkipping(false);
-    }
-  }
-
-  async function handleCalibrate() {
-    if (!pendingCalibration || calibrating) return;
-    setCalibrating(true);
-    setError('');
-    try {
-      const result = await calibrateSession(pendingCalibration.id, calibrateSOC);
-      setCalibrationResult(result.calibration);
-      setTimeout(async () => {
-        setCalibrationResult(null);
-        await refresh();
-      }, 3000);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setCalibrating(false);
     }
   }
 
@@ -655,121 +600,6 @@ export function MaevingPanel() {
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6">
 
-      {/* Calibration card (blocking) */}
-      {isCalibrationBlocking && (() => {
-        const calDevice = devices.find((d) => d.id === pendingCalibration.device_id);
-        return (
-          <section className="rounded-[2rem] border border-amber-700/60 bg-amber-950/20 p-5 sm:p-6">
-            <p className="mb-2 text-sm font-semibold uppercase tracking-[0.28em] text-amber-400">
-              Calibration Required
-            </p>
-            <p className="mb-4 text-sm text-slate-300">
-              Enter the observed SOC on the bike after the{' '}
-              <span className="font-semibold text-slate-100">
-                {calDevice?.site_key ?? 'unknown'}
-              </span>{' '}
-              charge on{' '}
-              <span className="font-semibold text-slate-100">
-                {formatDate(pendingCalibration.started_at)}
-              </span>.
-            </p>
-            {pendingCalibration.wh_delivered == null ? (
-              <>
-                <div className="mb-4 rounded-2xl border border-amber-700/50 bg-amber-900/20 px-4 py-3 text-sm text-amber-300">
-                  No energy data recorded for this session — capacity estimate cannot be updated.
-                </div>
-                {error && (
-                  <div className="mb-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
-                    {error}
-                  </div>
-                )}
-                <button
-                  type="button"
-                  disabled
-                  title="Cannot calibrate without energy data"
-                  className="mb-3 min-h-12 w-full cursor-not-allowed rounded-2xl bg-amber-700/60 px-6 text-base font-semibold text-amber-100 opacity-40"
-                >
-                  Save Observed SOC
-                </button>
-                <button
-                  type="button"
-                  onClick={handleSkipCalibration}
-                  disabled={skipping}
-                  className="min-h-12 w-full rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
-                >
-                  {skipping ? 'Skipping…' : 'Skip & Continue'}
-                </button>
-              </>
-            ) : (
-              <>
-                <div className="mb-4 rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
-                  <SOCRoller
-                    min={1}
-                    max={100}
-                    value={calibrateSOC}
-                    onChange={setCalibrateSOC}
-                    label="Observed SOC"
-                  />
-                </div>
-                {error && (
-                  <div className="mb-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
-                    {error}
-                  </div>
-                )}
-                {calibrationResult ? (
-                  <div className="rounded-2xl border border-emerald-700/50 bg-emerald-900/20 px-4 py-3 text-sm text-emerald-300">
-                    Pack estimate updated:{' '}
-                    {Math.round(calibrationResult.prevCapacity).toLocaleString()} Wh →{' '}
-                    {Math.round(calibrationResult.newCapacity).toLocaleString()} Wh (
-                    {calibrationResult.delta >= 0 ? '+' : ''}
-                    {Math.round(calibrationResult.delta)} Wh)
-                  </div>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={handleCalibrate}
-                    disabled={calibrating}
-                    className="min-h-12 w-full rounded-2xl bg-amber-700/60 px-6 text-base font-semibold text-amber-100 transition-colors hover:bg-amber-700/80 disabled:opacity-60"
-                  >
-                    {calibrating ? 'Saving…' : 'Save Observed SOC'}
-                  </button>
-                )}
-              </>
-            )}
-            <p className="mt-3 text-center text-sm text-slate-500">
-              Complete calibration to start next session.
-            </p>
-          </section>
-        );
-      })()}
-
-      {/* Device selector + plug-in form (gated when calibration is pending) */}
-      {config?.hasPendingCalibration ? (
-        <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
-          <p className="text-sm text-slate-400 text-center py-4">
-            Start a ride to record the bike's current SOC and unlock charging controls.
-          </p>
-          {config?.pendingSession?.id && (
-            <div className="flex justify-center mt-1">
-              <button
-                type="button"
-                className="text-xs text-slate-600 hover:text-slate-400 underline underline-offset-2"
-                onClick={async () => {
-                  try {
-                    await skipCalibration(config.pendingSession.id);
-                    await refresh();
-                  } catch (err) {
-                    console.error('skip calibration failed', err);
-                  }
-                }}
-              >
-                Skip calibration
-              </button>
-            </div>
-          )}
-        </section>
-      ) : (
-      <>
       {/* Device selector */}
       <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-4 sm:p-6">
         <div className="mb-4 flex items-center">
@@ -1196,34 +1026,30 @@ export function MaevingPanel() {
                 </div>
               )}
 
-              {/* Charge mode buttons — hidden when calibration is blocking */}
-              {!isCalibrationBlocking && (
-                <div className={selectedDevice?.site_key === 'LF' ? '' : 'grid grid-cols-2 gap-3'}>
+              {/* Charge mode buttons */}
+              <div className={selectedDevice?.site_key === 'LF' ? '' : 'grid grid-cols-2 gap-3'}>
+                <button
+                  type="button"
+                  onClick={handleChargeNow}
+                  disabled={starting || schedulingOvernight || isOverLimit}
+                  className={`min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60${selectedDevice?.site_key === 'LF' ? ' w-full' : ''}`}
+                >
+                  {starting ? 'Logging…' : 'Charge Now'}
+                </button>
+                {selectedDevice?.site_key !== 'LF' && (
                   <button
                     type="button"
-                    onClick={handleChargeNow}
+                    onClick={handleScheduleOvernight}
                     disabled={starting || schedulingOvernight || isOverLimit}
-                    className={`min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60${selectedDevice?.site_key === 'LF' ? ' w-full' : ''}`}
+                    className="min-h-14 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
                   >
-                    {starting ? 'Logging…' : 'Charge Now'}
+                    {schedulingOvernight ? 'Scheduling…' : 'Charge Overnight'}
                   </button>
-                  {selectedDevice?.site_key !== 'LF' && (
-                    <button
-                      type="button"
-                      onClick={handleScheduleOvernight}
-                      disabled={starting || schedulingOvernight || isOverLimit}
-                      className="min-h-14 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
-                    >
-                      {schedulingOvernight ? 'Scheduling…' : 'Charge Overnight'}
-                    </button>
-                  )}
-                </div>
-              )}
+                )}
+              </div>
             </div>
           )}
         </section>
-      )}
-      </>
       )}
 
       {/* Recent Charge Sessions */}

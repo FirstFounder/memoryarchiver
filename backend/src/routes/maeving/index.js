@@ -16,6 +16,7 @@ import {
   analyzeTaper,
   recordSessionComplete,
   skipCalibration,
+  findDeferredCalibration,
 } from '../../lib/maevingCalibration.js';
 import { computeRebelCostSync } from '../../lib/eiaGasPrice.js';
 
@@ -180,6 +181,23 @@ export default async function maevingRoutes(fastify) {
       INSERT INTO maeving_rides (trip_id, started_at, finished_at, duration_min, start_soc_pct, rebel_cost)
       VALUES (?, ?, NULL, NULL, ?, ?)
     `).run(trip_id, startedAt, start_soc_pct ?? null, rebelCost);
+
+    // Consume a deferred calibration from the most recent completed charge session.
+    // The user's starting SOC is the observed SOC after charging — use it to update the pack EMA.
+    if (start_soc_pct != null) {
+      const deferred = findDeferredCalibration();
+      if (deferred) {
+        try {
+          recordCalibrationEntry(deferred.id, start_soc_pct);
+          fastify.log.info(
+            { sessionId: deferred.id, start_soc_pct },
+            'Maeving: deferred calibration applied at ride start',
+          );
+        } catch (err) {
+          fastify.log.warn({ err, sessionId: deferred.id }, 'Maeving: deferred calibration failed');
+        }
+      }
+    }
 
     notifyRideStarted(result.lastInsertRowid, startedAt);
 
@@ -960,13 +978,12 @@ export default async function maevingRoutes(fastify) {
 
     invalidateActiveSessionCache(session.device_id);
 
-    if (session.soc_target_pct === 100) {
-      recordSessionComplete(session.id);
-    } else {
-      if (cfg.calibration_mode === 0) {
-        recordSessionComplete(session.id);
-      }
-    }
+    // Mark calibration complete immediately so the UI returns to the Plug In card.
+    // The actual SOC observation is deferred — it is captured at the next ride start.
+    db.prepare(`
+      UPDATE maeving_sessions SET calibration_complete = 1 WHERE id = ?
+    `).run(session.id);
+    recordSessionComplete(session.id);
 
     // Consume rides that were prestaged for this session
     for (let n = 1; n <= 8; n++) {
