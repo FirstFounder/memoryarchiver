@@ -301,14 +301,6 @@ export function MaevingPanel() {
     setCheckedRideIds(new Set());
   }
 
-  function addLeg() {
-    if (checkedCount + legs.length < 8) setLegs((prev) => [...prev, { trip_id: '', duration_min: '' }]);
-  }
-
-  function removeLeg(index) {
-    setLegs((prev) => prev.filter((_, i) => i !== index));
-  }
-
   function updateLeg(index, field, value) {
     setLegs((prev) => prev.map((l, i) => (i === index ? { ...l, [field]: value } : l)));
   }
@@ -900,7 +892,7 @@ export function MaevingPanel() {
               {/* Over-limit warning */}
               {isOverLimit && (
                 <div className="rounded-2xl border border-amber-700/60 bg-amber-950/20 px-4 py-3 text-sm text-amber-300">
-                  {totalLegCount} legs selected — maximum is 8. Uncheck prestaged rides or remove manual legs.
+                  {totalLegCount} legs selected — maximum is 8. Uncheck rides to stay within the limit.
                 </div>
               )}
 
@@ -939,27 +931,8 @@ export function MaevingPanel() {
                         onChange={(e) => updateLeg(i, 'duration_min', e.target.value)}
                       />
                     )}
-                    {legs.length > 1 && (
-                      <button
-                        type="button"
-                        onClick={() => removeLeg(i)}
-                        className="rounded-lg p-1.5 text-slate-500 transition-colors hover:bg-[color:var(--color-surface-0)] hover:text-slate-300"
-                        title="Remove leg"
-                      >
-                        ×
-                      </button>
-                    )}
                   </div>
                 ))}
-                {(checkedCount + legs.length) < 8 && (
-                  <button
-                    type="button"
-                    onClick={addLeg}
-                    className="self-start rounded-xl border border-[color:var(--color-border)] px-3 py-1.5 text-sm text-slate-400 transition-colors hover:border-slate-500 hover:text-slate-300"
-                  >
-                    + Add Leg
-                  </button>
-                )}
               </div>
 
               {/* Trip statistics */}
