@@ -60,8 +60,13 @@ export function sessionReadingsStats(deviceId, startedAt) {
 
   if (rows.length < 2) return { wh_delivered: null, peak_watts: null, avg_watts: null };
 
-  const first = rows[0];
-  const last = rows[rows.length - 1];
+  // Exclude rows with null aenergy_total — JS coerces null to 0 in arithmetic, which
+  // would make the delta equal the Shelly's entire lifetime accumulated total.
+  const energyRows = rows.filter(r => r.aenergy_total != null);
+  if (energyRows.length < 2) return { wh_delivered: null, peak_watts: null, avg_watts: null };
+
+  const first = energyRows[0];
+  const last = energyRows[energyRows.length - 1];
   const delta = last.aenergy_total - first.aenergy_total;
   const wh_delivered = delta >= 0 ? delta : 0;
 

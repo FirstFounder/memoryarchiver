@@ -45,8 +45,13 @@ function readingsStats(deviceId, startedAt) {
 
   if (rows.length < 2) return { wh_delivered: null, peak_watts: null, avg_watts: null, reading_count: rows.length };
 
-  const first = rows[0];
-  const last = rows[rows.length - 1];
+  // Exclude rows with null aenergy_total — JS coerces null to 0 in arithmetic, which
+  // would make the delta equal the Shelly's entire lifetime accumulated total.
+  const energyRows = rows.filter(r => r.aenergy_total != null);
+  if (energyRows.length < 2) return { wh_delivered: null, peak_watts: null, avg_watts: null, reading_count: rows.length };
+
+  const first = energyRows[0];
+  const last = energyRows[energyRows.length - 1];
   const delta = last.aenergy_total - first.aenergy_total;
   const wh_delivered = delta >= 0 ? delta : 0;
 
@@ -721,15 +726,17 @@ export default async function maevingRoutes(fastify) {
 
     invalidateActiveSessionCache(device_id);
 
-    // Write baseline reading only for Charge Now — overnight baseline is written at activation
+    // Write baseline reading only for Charge Now — overnight baseline is written at activation.
+    // Only write if aenergy_total is known; a null value would coerce to 0 in delta arithmetic,
+    // making wh_delivered equal the Shelly's entire lifetime accumulated total.
     if (mode === 'now') {
       const baselineState = getDeviceState(device_id);
-      if (baselineState) {
+      if (baselineState && baselineState.aenergy_total != null) {
         db.prepare(`
           INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
           VALUES (?, ?, ?, ?, ?)
         `).run(device_id, baselineState.apower ?? 0, baselineState.current ?? 0,
-               baselineState.voltage ?? 0, baselineState.aenergy_total ?? 0);
+               baselineState.voltage ?? 0, baselineState.aenergy_total);
       }
     }
 
@@ -877,12 +884,12 @@ export default async function maevingRoutes(fastify) {
     }
 
     const finalState = getDeviceState(session.device_id);
-    if (finalState) {
+    if (finalState && finalState.aenergy_total != null) {
       db.prepare(`
         INSERT INTO maeving_readings (device_id, apower, current, voltage, aenergy_total)
         VALUES (?, ?, ?, ?, ?)
       `).run(session.device_id, finalState.apower ?? 0, finalState.current ?? 0,
-             finalState.voltage ?? 0, finalState.aenergy_total ?? 0);
+             finalState.voltage ?? 0, finalState.aenergy_total);
     }
 
     const now = new Date().toISOString();
