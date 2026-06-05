@@ -434,6 +434,10 @@ async function runScheduledSessions() {
         db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(session.soc_target_pct);
       }
 
+      // Clear calibration gate so the deferred observation can be consumed at next ride start.
+      db.prepare('UPDATE maeving_sessions SET calibration_complete = 1 WHERE id = ?').run(session.id);
+      recordSessionComplete(session.id);
+
       try {
         computeChargeCurve(session.id, db);
       } catch (err) {
