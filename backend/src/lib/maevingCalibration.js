@@ -180,10 +180,27 @@ export function computeChargeCurve(sessionId, db) {
 
   // Median-3 filter: eliminates isolated zero-watt readings caused by MQTT delivery gaps
   // where the Shelly momentarily reports 0 W between otherwise full-power readings.
-  const enriched = raw.length < 3 ? raw : raw.map((r, i) => {
+  const median3 = raw.length < 3 ? raw : raw.map((r, i) => {
     if (i === 0 || i === raw.length - 1) return r;
     const vals = [raw[i - 1].watts, r.watts, raw[i + 1].watts].sort((a, b) => a - b);
     return { ...r, watts: vals[1] };
+  });
+  // Forward-fill: once the session has reached full charging power, treat any zero-watt
+  // reading as an MQTT gap (the Shelly went silent, not the charger). Hold the last known
+  // wattage forward. Zeros before the first full-power reading (ramp-up) are preserved.
+  // The last reading is always preserved (it is the genuine session-end zero).
+  const peakForFill = Math.max(...median3.map(r => r.watts));
+  const fullPowerThreshold = peakForFill * 0.8;
+  let lastNonZero = 0;
+  let reachedFullPower = false;
+  const enriched = median3.map((r, i) => {
+    if (r.watts >= fullPowerThreshold) reachedFullPower = true;
+    if (r.watts > 0) lastNonZero = r.watts;
+    // Fill zeros mid-session (after full power reached), but not the final reading
+    if (reachedFullPower && r.watts === 0 && i < median3.length - 1) {
+      return { ...r, watts: lastNonZero };
+    }
+    return r;
   });
 
   const peakWatts = Math.max(...enriched.map(r => r.watts));
