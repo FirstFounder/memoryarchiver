@@ -724,6 +724,24 @@ export default async function maevingRoutes(fastify) {
       db.prepare('UPDATE maeving_config SET avg_wh_per_mile = ? WHERE id = 1').run(avgWhPerMile);
     }
 
+    // Consume a deferred calibration from the previous charge session, if one exists.
+    // Back-to-back charges without an intervening ride use the new session's starting SOC
+    // as the observed post-charge SOC for the previous session.
+    if (soc_start_pct != null) {
+      const deferred = findDeferredCalibration();
+      if (deferred) {
+        try {
+          recordCalibrationEntry(deferred.id, soc_start_pct);
+          fastify.log.info(
+            { sessionId: deferred.id, soc_start_pct },
+            'Maeving: deferred calibration applied at charge session start',
+          );
+        } catch (err) {
+          fastify.log.warn({ err, sessionId: deferred.id }, 'Maeving: deferred calibration failed at session start');
+        }
+      }
+    }
+
     invalidateActiveSessionCache(device_id);
 
     // Write baseline reading only for Charge Now — overnight baseline is written at activation.
