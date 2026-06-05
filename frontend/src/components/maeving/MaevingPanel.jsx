@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { AreaChart, Area, ReferenceLine, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import {
   deleteCalibrationEntry,
   deleteRide,
@@ -896,9 +896,13 @@ export function MaevingPanel() {
             </div>
             {recentSessions.map((session) => {
               const device = devices.find((d) => d.id === session.device_id);
+              // Deferred calibration: session is closed but actual SOC not yet observed
+              // (actual_soc_pct is captured at next ride start via findDeferredCalibration)
               const needsCalibration =
-                session.calibration_complete === 0 &&
-                (session.status === 'complete' || session.status === 'charger_complete');
+                (session.status === 'complete' || session.status === 'charger_complete') &&
+                session.calibration_complete === 1 &&
+                session.actual_soc_pct == null &&
+                (session.wh_delivered ?? 0) > 0;
               const rowClass = getSessionRowClass(session, device);
               const isConfirmingDelete = deleteSessionConfirmId === session.id;
 
@@ -1601,8 +1605,27 @@ export function MaevingPanel() {
                   <p className="mb-1 text-xs text-slate-400">
                     Latest session · {config.latestChargeCurve.device_label} · {formatDate(config.latestChargeCurve.recorded_at)}
                   </p>
-                  <ResponsiveContainer width="100%" height={80}>
-                    <AreaChart data={config.latestChargeCurve.power_timeline_json} margin={{ top: 4, right: 0, left: 0, bottom: 0 }}>
+                  <ResponsiveContainer width="100%" height={140}>
+                    <AreaChart data={config.latestChargeCurve.power_timeline_json} margin={{ top: 8, right: 8, left: 8, bottom: 20 }}>
+                      <XAxis
+                        dataKey="t"
+                        type="number"
+                        domain={['dataMin', 'dataMax']}
+                        tick={{ fontSize: 9, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                        tickCount={6}
+                        tickFormatter={(v) => `${Math.round(v)}m`}
+                        label={{ value: 'time', position: 'insideBottomRight', offset: 0, fontSize: 9, fill: '#475569' }}
+                      />
+                      <YAxis
+                        dataKey="w"
+                        tick={{ fontSize: 9, fill: '#64748b' }}
+                        tickLine={false}
+                        axisLine={false}
+                        width={36}
+                        tickFormatter={(v) => `${v}W`}
+                      />
                       <Area
                         type="monotone"
                         dataKey="w"

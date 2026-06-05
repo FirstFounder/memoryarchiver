@@ -172,11 +172,19 @@ export function computeChargeCurve(sessionId, db) {
   if (readings.length < 10) return null;
 
   const firstTs = new Date(readings[0].recorded_at).getTime();
-  const enriched = readings.map(r => ({
+  const raw = readings.map(r => ({
     minutes: (new Date(r.recorded_at).getTime() - firstTs) / 60_000,
     watts: r.apower ?? 0,
     aenergy_total: r.aenergy_total,
   }));
+
+  // Median-3 filter: eliminates isolated zero-watt readings caused by MQTT delivery gaps
+  // where the Shelly momentarily reports 0 W between otherwise full-power readings.
+  const enriched = raw.length < 3 ? raw : raw.map((r, i) => {
+    if (i === 0 || i === raw.length - 1) return r;
+    const vals = [raw[i - 1].watts, r.watts, raw[i + 1].watts].sort((a, b) => a - b);
+    return { ...r, watts: vals[1] };
+  });
 
   const peakWatts = Math.max(...enriched.map(r => r.watts));
   if (peakWatts < 800) return null;
