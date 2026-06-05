@@ -1627,7 +1627,7 @@ export function MaevingPanel() {
                         tickFormatter={(v) => `${v}W`}
                       />
                       <Area
-                        type="monotone"
+                        type="stepAfter"
                         dataKey="w"
                         stroke="#60a5fa"
                         fill="#60a5fa"
@@ -1636,17 +1636,13 @@ export function MaevingPanel() {
                         strokeWidth={1.5}
                         isAnimationActive={false}
                       />
-                      {config.latestChargeCurve.taper_onset_minutes != null && (() => {
-                        const timeline = config.latestChargeCurve.power_timeline_json;
-                        const taperIdx = timeline.findIndex(p => p.t >= config.latestChargeCurve.taper_onset_minutes);
-                        return taperIdx >= 0 ? (
-                          <ReferenceLine
-                            x={taperIdx}
-                            stroke="#f87171"
-                            label={{ value: 'Taper', fontSize: 10, fill: '#f87171', position: 'top' }}
-                          />
-                        ) : null;
-                      })()}
+                      {config.latestChargeCurve.taper_onset_minutes != null && (
+                        <ReferenceLine
+                          x={config.latestChargeCurve.taper_onset_minutes}
+                          stroke="#f87171"
+                          label={{ value: 'Taper', fontSize: 10, fill: '#f87171', position: 'top' }}
+                        />
+                      )}
                     </AreaChart>
                   </ResponsiveContainer>
                 </div>
