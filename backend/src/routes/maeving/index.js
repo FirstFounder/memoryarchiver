@@ -1156,6 +1156,12 @@ export default async function maevingRoutes(fastify) {
       return reply.code(409).send({ error: 'cannot delete an active or scheduled session' });
     }
 
+    // Clear maeving_config.prev_session_id if it points here — foreign_keys=ON would
+    // otherwise block the DELETE with a constraint violation.
+    db.prepare(
+      'UPDATE maeving_config SET prev_session_id = NULL WHERE prev_session_id = ?'
+    ).run(session.id);
+
     db.prepare('DELETE FROM maeving_sessions WHERE id = ?').run(session.id);
 
     // Recompute running_savings_dollars from all remaining completed sessions
