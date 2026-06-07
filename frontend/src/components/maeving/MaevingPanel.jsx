@@ -924,7 +924,7 @@ export function MaevingPanel() {
             Recent Charge Sessions
           </p>
           <div className="flex flex-col gap-2 overflow-x-auto">
-            <div className="grid min-w-0 grid-cols-[4rem_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.8fr)_auto] items-center gap-x-3 px-4 text-xs text-slate-500">
+            <div className="grid min-w-0 grid-cols-[4rem_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.8fr)_auto] items-start gap-x-3 px-4 text-xs text-slate-500">
               <span>Site</span>
               <div className="flex flex-col gap-0.5">
                 <span>Date</span>
@@ -981,7 +981,7 @@ export function MaevingPanel() {
               return (
                 <div
                   key={session.id}
-                  className={`grid min-w-0 grid-cols-[4rem_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.8fr)_auto] items-center gap-x-3 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
+                  className={`grid min-w-0 grid-cols-[4rem_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.8fr)_auto] items-center gap-x-3 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
                 >
                   <span className="whitespace-nowrap font-semibold text-slate-300">
                     {device?.site_key ?? '?'}
