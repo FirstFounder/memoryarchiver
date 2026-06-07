@@ -19,6 +19,7 @@ export default async function appConfigRoute(fastify) {
       audioEnabled:    config.audioEnabled,
       receiptsEnabled: config.receiptsEnabled,
       maevingEnabled:  config.maevingEnabled,
+      bugoutEnabled:   config.bugoutEnabled,
     });
   });
 }

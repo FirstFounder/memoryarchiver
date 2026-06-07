@@ -16,6 +16,7 @@ import { TeslaSettingsModal } from './components/tesla/TeslaSettingsModal.jsx';
 import { AudioTab } from './components/audio/AudioTab.jsx';
 import { ReceiptsPanel } from './components/receipts/ReceiptsPanel.jsx';
 import { MaevingPanel } from './components/maeving/MaevingPanel.jsx';
+import { BugoutPanel } from './components/bugout/BugoutPanel.jsx';
 import { RideCard } from './components/maeving/RideCard.jsx';
 import { LegsCard } from './components/maeving/LegsCard.jsx';
 import { getAppConfig } from './api/appConfig.js';
@@ -137,6 +138,7 @@ export default function App() {
   const audioEnabled    = useAppConfigStore(s => s.audioEnabled);
   const receiptsEnabled = useAppConfigStore(s => s.receiptsEnabled);
   const maevingEnabled  = useAppConfigStore(s => s.maevingEnabled);
+  const bugoutEnabled   = useAppConfigStore(s => s.bugoutEnabled);
   useEffect(() => {
     getAppConfig().then(setConfig).catch(() => { /* retain defaults on error */ });
   }, []);
@@ -148,6 +150,7 @@ export default function App() {
   const isAudio    = configLoaded && audioEnabled;
   const isReceipts = configLoaded && receiptsEnabled;
   const isMaeving  = configLoaded && maevingEnabled;
+  const isBugout   = configLoaded && bugoutEnabled;
 
   const [maevingSavings, setMaevingSavings] = useState(null);
   const [maevingWhPerMile, setMaevingWhPerMile] = useState(null);
@@ -202,6 +205,7 @@ export default function App() {
     ...(isAudio    ? [{ id: 'audio',    label: 'Audio'    }] : []),
     ...(isReceipts ? [{ id: 'receipts', label: 'Receipts' }] : []),
     ...(isCa ? [{ id: 'ca', label: 'CA' }] : []),
+    ...(isBugout ? [{ id: 'bugout', label: 'Bugout' }] : []),
   ];
   const showTabBar = tabs.length > 1;
 
@@ -209,7 +213,7 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [sourceOpen, setSourceOpen] = useState(true);
 
-  // Deep link: activate Maeving tab on initial load when path is /maeving
+  // Deep link: activate Maeving or Bugout tab on initial load
   const didPathInit = useRef(false);
   useEffect(() => {
     if (!configLoaded || didPathInit.current) return;
@@ -217,7 +221,10 @@ export default function App() {
     if (window.location.pathname === '/maeving' && isMaeving) {
       setActiveTab('maeving');
     }
-  }, [configLoaded, isMaeving]);
+    if (window.location.pathname.startsWith('/bugoutprep') && isBugout) {
+      setActiveTab('bugout');
+    }
+  }, [configLoaded, isMaeving, isBugout]);
 
   useEffect(() => {
     if (!tabs.some(tab => tab.id === activeTab)) {
@@ -519,6 +526,10 @@ export default function App() {
 
           {isReceipts && activeTab === 'receipts' && (
             <ReceiptsPanel />
+          )}
+
+          {isBugout && activeTab === 'bugout' && (
+            <BugoutPanel />
           )}
         </div>
       </main>

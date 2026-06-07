@@ -21,6 +21,7 @@ export const useAppConfigStore = create((set) => ({
   audioEnabled:    false,
   receiptsEnabled: false,
   maevingEnabled:  false,
+  bugoutEnabled:   false,
   loaded:          false,
 
   setConfig: (cfg) => set({ ...cfg, loaded: true }),

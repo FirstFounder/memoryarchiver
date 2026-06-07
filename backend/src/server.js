@@ -34,6 +34,7 @@ import { startAudioWorker, stopAudioWorker } from './worker/audioWorker.js';
 import backupRoutes from './routes/backup.js';
 import receiptsRoutes from './routes/receipts/index.js';
 import maevingRoutes from './routes/maeving/index.js';
+import bugoutRoutes from './routes/bugout/index.js';
 import { startMaevingMqtt, stopMaevingMqtt } from './lib/maevingMqtt.js';
 import { startMaevingScheduler, stopMaevingScheduler } from './lib/maevingScheduler.js';
 import { initEiaScheduler, backfillRebelCosts } from './lib/eiaGasPrice.js';
@@ -165,6 +166,11 @@ if (config.receiptsEnabled) {
 if (config.maevingEnabled) {
   await fastify.register(maevingRoutes);
   fastify.log.info('Maeving enabled — Maeving routes registered');
+}
+
+if (config.bugoutEnabled) {
+  await fastify.register(bugoutRoutes);
+  fastify.log.info('Bugout enabled — bugout routes registered');
 }
 
 // ── Startup ───────────────────────────────────────────────────────────────────
