@@ -1044,7 +1044,7 @@ export default async function maevingRoutes(fastify) {
     if (!['complete', 'charger_complete'].includes(session.status)) {
       return reply.code(400).send({ error: 'session must be complete or charger_complete' });
     }
-    if (session.calibration_complete) {
+    if (session.calibration_complete && session.actual_soc_pct != null) {
       return reply.code(400).send({ error: 'session already calibrated' });
     }
 

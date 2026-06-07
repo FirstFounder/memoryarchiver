@@ -143,7 +143,7 @@ export function isCalibrationBlocked() {
 export function skipCalibration(sessionId) {
   const session = db.prepare('SELECT * FROM maeving_sessions WHERE id = ?').get(sessionId);
   if (!session) throw new Error('session not found');
-  if (session.calibration_complete) throw new Error('session already calibrated');
+  if (session.calibration_complete && session.actual_soc_pct != null) throw new Error('session already calibrated');
 
   db.prepare(`
     UPDATE maeving_sessions
