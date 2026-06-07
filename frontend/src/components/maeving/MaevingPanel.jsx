@@ -93,6 +93,16 @@ function formatSessionDate(startedAt, endedAt) {
   return `${dateStr} ${startTime}–${endTime}`;
 }
 
+function formatDateOnly(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
+function formatTimeOnly(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+}
+
 function formatTimeRange(startedAt, finishedAt) {
   if (!startedAt) return '';
   const fmt = (iso) =>
@@ -914,12 +924,16 @@ export function MaevingPanel() {
             Recent Charge Sessions
           </p>
           <div className="flex flex-col gap-2 overflow-x-auto">
-            <div className="grid min-w-0 grid-cols-[4rem_minmax(0,3fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.5fr)_1.75rem] items-center gap-x-3 px-4 text-xs text-slate-500">
+            <div className="grid min-w-0 grid-cols-[4rem_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.8fr)_auto] items-center gap-x-3 px-4 text-xs text-slate-500">
               <span>Site</span>
-              <span>Date</span>
+              <div className="flex flex-col gap-0.5">
+                <span>Date</span>
+                <span>Start</span>
+                <span>End</span>
+              </div>
               <span>Energy</span>
               <span>SOC range</span>
-              <span>Charge Time</span>
+              <span>Charge<br/>Time</span>
               <span>Cost</span>
               <span />
             </div>
@@ -967,7 +981,7 @@ export function MaevingPanel() {
               return (
                 <div
                   key={session.id}
-                  className={`grid min-w-0 grid-cols-[4rem_minmax(0,3fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.5fr)_1.75rem] items-center gap-x-3 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
+                  className={`grid min-w-0 grid-cols-[4rem_minmax(0,1.8fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.8fr)_auto] items-center gap-x-3 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
                 >
                   <span className="whitespace-nowrap font-semibold text-slate-300">
                     {device?.site_key ?? '?'}
@@ -983,7 +997,11 @@ export function MaevingPanel() {
                       />
                     )}
                   </span>
-                  <span className="whitespace-nowrap text-slate-500">{formatSessionDate(session.started_at, session.ended_at)}</span>
+                  <div className="flex flex-col gap-0.5 text-xs">
+                    <span className="text-slate-400">{formatDateOnly(session.started_at)}</span>
+                    <span className="text-slate-500">{formatTimeOnly(session.started_at)}</span>
+                    {session.ended_at && <span className="text-slate-500">{formatTimeOnly(session.ended_at)}</span>}
+                  </div>
                   <span className="text-slate-400">
                     {formatEnergy(session.wh_delivered)}
                   </span>
@@ -995,7 +1013,7 @@ export function MaevingPanel() {
                   </span>
                   {device?.cost_free ? (
                     session.lf_equivalent_cost_dollars != null ? (
-                      <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                      <span className="flex flex-col items-start gap-0.5 text-xs leading-tight">
                         <span className="text-green-400">
                           vs Hourly: ${session.lf_equivalent_cost_dollars.toFixed(2)}
                         </span>
@@ -1009,7 +1027,7 @@ export function MaevingPanel() {
                       <span className="text-slate-400">$0.00</span>
                     )
                   ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
-                    <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
+                    <span className="flex flex-col items-start gap-0.5 text-xs leading-tight">
                       <span className="text-green-400">
                         Hourly: ${session.actual_cost_dollars.toFixed(2)}
                       </span>
@@ -1042,18 +1060,18 @@ export function MaevingPanel() {
                   <div className="flex items-center gap-1.5">
                     {needsCalibration && (
                       <>
-                        <div className="flex items-center">
-                          <button
-                            type="button"
-                            onClick={() => setCalibrateSocMap((prev) => ({ ...prev, [session.id]: Math.max(0, calSoc - 1) }))}
-                            className="rounded px-1 py-0.5 text-xs text-slate-400 hover:text-slate-200"
-                          >‹</button>
-                          <span className="w-9 text-center text-xs font-semibold text-slate-200">{calSoc}%</span>
+                        <div className="flex flex-col items-center">
                           <button
                             type="button"
                             onClick={() => setCalibrateSocMap((prev) => ({ ...prev, [session.id]: Math.min(100, calSoc + 1) }))}
-                            className="rounded px-1 py-0.5 text-xs text-slate-400 hover:text-slate-200"
-                          >›</button>
+                            className="rounded px-1 py-0 text-xs text-slate-400 hover:text-slate-200 leading-none"
+                          >▲</button>
+                          <span className="w-9 text-center text-xs font-semibold text-slate-200">{calSoc}%</span>
+                          <button
+                            type="button"
+                            onClick={() => setCalibrateSocMap((prev) => ({ ...prev, [session.id]: Math.max(0, calSoc - 1) }))}
+                            className="rounded px-1 py-0 text-xs text-slate-400 hover:text-slate-200 leading-none"
+                          >▼</button>
                         </div>
                         <button
                           type="button"
