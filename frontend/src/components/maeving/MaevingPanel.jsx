@@ -201,8 +201,14 @@ export function MaevingPanel() {
   // Apply per-site default target SOC when device selection changes (no active session)
   useEffect(() => {
     if (!selectedDevice || activeSession) return;
-    const defaultTarget = selectedDevice.default_soc_target ?? 95;
-    setSocTarget(defaultTarget);
+    const siteKey = selectedDevice.site_key;
+    if (siteKey === 'MH') {
+      setSocTarget(90);
+    } else if (siteKey === 'BG') {
+      setSocTarget(socStart < 40 ? 40 : 90);
+    } else {
+      setSocTarget(selectedDevice.default_soc_target ?? 95);
+    }
   }, [selectedDevice?.id, !!activeSession]);
 
   useEffect(() => {
@@ -908,7 +914,7 @@ export function MaevingPanel() {
             Recent Charge Sessions
           </p>
           <div className="flex flex-col gap-2 overflow-x-auto">
-            <div className="grid min-w-0 grid-cols-[auto_minmax(0,3fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.5fr)_auto] items-center gap-x-3 px-4 text-xs text-slate-500">
+            <div className="grid min-w-0 grid-cols-[4rem_minmax(0,3fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.5fr)_1.75rem] items-center gap-x-3 px-4 text-xs text-slate-500">
               <span>Site</span>
               <span>Date</span>
               <span>Energy</span>
@@ -961,7 +967,7 @@ export function MaevingPanel() {
               return (
                 <div
                   key={session.id}
-                  className={`grid min-w-0 grid-cols-[auto_minmax(0,3fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.5fr)_auto] items-center gap-x-3 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
+                  className={`grid min-w-0 grid-cols-[4rem_minmax(0,3fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.5fr)_1.75rem] items-center gap-x-3 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
                 >
                   <span className="whitespace-nowrap font-semibold text-slate-300">
                     {device?.site_key ?? '?'}
