@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Tooltip } from './Tooltip.jsx';
 
 function ActivityForm({ initial, onSubmit, onCancel, submitLabel }) {
   const [name, setName] = useState(initial?.name ?? '');
@@ -101,9 +102,11 @@ export function ActivitiesManagementCard({ activities, onAdd, onUpdate, onToggle
                   ) : (
                     <div className="flex items-center gap-2">
                       <div className="flex-1 min-w-0">
-                        <span className={`font-medium text-sm ${activity.is_hidden ? 'italic text-slate-500' : 'text-slate-100'}`}>
-                          {activity.name}
-                        </span>
+                        <Tooltip text={activity.description}>
+                          <span className={`font-medium text-sm ${activity.is_hidden ? 'italic text-slate-500' : 'text-slate-100'}`}>
+                            {activity.name}
+                          </span>
+                        </Tooltip>
                         {activity.is_overnight === 1 && (
                           <span className="ml-1 text-xs">🌙</span>
                         )}

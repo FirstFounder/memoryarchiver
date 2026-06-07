@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Tooltip } from './Tooltip.jsx';
 
 export function DoCard({ activities, checklist, onCheckActivity, onUncheckActivity, overnightMode, onToggleOvernight }) {
   const [selected, setSelected] = useState('');
@@ -61,7 +62,7 @@ export function DoCard({ activities, checklist, onCheckActivity, onUncheckActivi
         <p className="text-slate-500 text-sm">No activities on list yet.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {checklistActivities.map(({ id, name, is_overnight, cl }) => (
+          {checklistActivities.map(({ id, name, description, is_overnight, cl }) => (
             <li key={id} className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -69,9 +70,11 @@ export function DoCard({ activities, checklist, onCheckActivity, onUncheckActivi
                 onChange={() => onUncheckActivity({ id, name })}
                 className="accent-indigo-500 w-4 h-4 shrink-0"
               />
-              <span className={cl.is_checked === 1 ? 'line-through text-slate-500 text-sm' : 'text-slate-100 text-sm'}>
-                {name}
-              </span>
+              <Tooltip text={description}>
+                <span className={cl.is_checked === 1 ? 'line-through text-slate-500 text-sm' : 'text-slate-100 text-sm'}>
+                  {name}
+                </span>
+              </Tooltip>
               {is_overnight === 1 && (
                 <span className="text-xs">🌙</span>
               )}

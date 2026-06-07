@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Tooltip } from './Tooltip.jsx';
 
 function ItemForm({ initial, onSubmit, onCancel, submitLabel }) {
   const [name, setName] = useState(initial?.name ?? '');
@@ -101,9 +102,11 @@ export function ItemsManagementCard({ items, onAdd, onUpdate, onToggleHidden }) 
                   ) : (
                     <div className="flex items-center gap-2">
                       <div className="flex-1 min-w-0">
-                        <span className={`font-medium text-sm ${item.is_hidden ? 'italic text-slate-500' : 'text-slate-100'}`}>
-                          {item.name}
-                        </span>
+                        <Tooltip text={item.description}>
+                          <span className={`font-medium text-sm ${item.is_hidden ? 'italic text-slate-500' : 'text-slate-100'}`}>
+                            {item.name}
+                          </span>
+                        </Tooltip>
                         {item.is_overnight === 1 && (
                           <span className="ml-1 text-xs text-slate-400">🌙</span>
                         )}

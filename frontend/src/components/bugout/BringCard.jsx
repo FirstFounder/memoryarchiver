@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Tooltip } from './Tooltip.jsx';
 
 export function BringCard({ items, checklist, onCheckItem, onUncheckItem }) {
   const [selected, setSelected] = useState('');
@@ -43,7 +44,7 @@ export function BringCard({ items, checklist, onCheckItem, onUncheckItem }) {
         <p className="text-slate-500 text-sm">No items on list yet.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {checklistItems.map(({ id, name, cl }) => (
+          {checklistItems.map(({ id, name, description, cl }) => (
             <li key={id} className="flex items-center gap-2">
               <input
                 type="checkbox"
@@ -51,9 +52,11 @@ export function BringCard({ items, checklist, onCheckItem, onUncheckItem }) {
                 onChange={() => onUncheckItem({ id, name }, cl)}
                 className="accent-indigo-500 w-4 h-4 shrink-0"
               />
-              <span className={cl.is_checked === 1 ? 'line-through text-slate-500 text-sm' : 'text-slate-100 text-sm'}>
-                {name}
-              </span>
+              <Tooltip text={description}>
+                <span className={cl.is_checked === 1 ? 'line-through text-slate-500 text-sm' : 'text-slate-100 text-sm'}>
+                  {name}
+                </span>
+              </Tooltip>
               {cl.source === 'auto' && (
                 <span className="text-xs bg-slate-700 text-slate-400 rounded px-1 py-0.5 ml-1">auto</span>
               )}
