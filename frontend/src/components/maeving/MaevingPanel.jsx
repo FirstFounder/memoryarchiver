@@ -924,19 +924,6 @@ export function MaevingPanel() {
             Recent Charge Sessions
           </p>
           <div className="flex flex-col gap-2 overflow-x-auto">
-            <div className="grid min-w-0 grid-cols-[4rem_minmax(0,1.2fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,1.8fr)_auto] items-start gap-x-3 px-4 text-xs text-slate-500">
-              <span>Site</span>
-              <div className="flex flex-col gap-0.5">
-                <span>Date</span>
-                <span>Start</span>
-                <span>End</span>
-              </div>
-              <span>Energy</span>
-              <span>SOC range</span>
-              <span>Charge<br/>Time</span>
-              <span>Cost</span>
-              <span />
-            </div>
             {recentSessions.map((session) => {
               const device = devices.find((d) => d.id === session.device_id);
               // Deferred calibration: session is closed but actual SOC not yet observed
