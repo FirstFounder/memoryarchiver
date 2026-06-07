@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { AreaChart, Area, ReferenceLine, ResponsiveContainer, XAxis, YAxis } from 'recharts';
 import {
+  calibrateSession,
   deleteCalibrationEntry,
   deleteRide,
   deleteSession,
@@ -82,6 +83,16 @@ function formatChargeTime(startedAt, endedAt) {
   return formatMinutes(diffMin);
 }
 
+function formatSessionDate(startedAt, endedAt) {
+  if (!startedAt) return '—';
+  const start = new Date(startedAt);
+  const dateStr = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  const startTime = start.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  if (!endedAt) return `${dateStr} ${startTime}`;
+  const endTime = new Date(endedAt).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+  return `${dateStr} ${startTime}–${endTime}`;
+}
+
 function formatTimeRange(startedAt, finishedAt) {
   if (!startedAt) return '';
   const fmt = (iso) =>
@@ -114,6 +125,7 @@ export function MaevingPanel() {
   const [starting, setStarting] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [deleteSessionConfirmId, setDeleteSessionConfirmId] = useState(null);
+  const [calibrateSocMap, setCalibrateSocMap] = useState({});
   const [error, setError] = useState('');
   const [taperData, setTaperData] = useState(null);
   const [showCapacityHistory, setShowCapacityHistory] = useState(false);
@@ -427,6 +439,16 @@ export function MaevingPanel() {
       await refresh();
     } catch (err) {
       console.error('Failed to delete session', err);
+    }
+  }
+
+  async function handleCalibrateSession(sessionId, socPct) {
+    try {
+      await calibrateSession(sessionId, socPct);
+      setCalibrateSocMap((prev) => { const next = { ...prev }; delete next[sessionId]; return next; });
+      await refresh();
+    } catch (err) {
+      console.error('Calibrate failed', err);
     }
   }
 
@@ -885,14 +907,15 @@ export function MaevingPanel() {
           <p className="mb-4 text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">
             Recent Charge Sessions
           </p>
-          <div className="flex flex-col gap-2">
-            <div className="flex flex-wrap items-center justify-between gap-2 px-4 text-xs text-slate-500">
+          <div className="flex flex-col gap-2 overflow-x-auto">
+            <div className="grid min-w-0 grid-cols-[auto_minmax(0,3fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.5fr)_auto] items-center gap-x-3 px-4 text-xs text-slate-500">
               <span>Site</span>
               <span>Date</span>
               <span>Energy</span>
               <span>SOC range</span>
               <span>Charge Time</span>
               <span>Cost</span>
+              <span />
             </div>
             {recentSessions.map((session) => {
               const device = devices.find((d) => d.id === session.device_id);
@@ -933,12 +956,14 @@ export function MaevingPanel() {
                 );
               }
 
+              const calSoc = calibrateSocMap[session.id] ?? (session.soc_target_pct ?? 60);
+
               return (
                 <div
                   key={session.id}
-                  className={`flex flex-wrap items-center justify-between gap-2 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
+                  className={`grid min-w-0 grid-cols-[auto_minmax(0,3fr)_minmax(0,1.2fr)_minmax(0,1.5fr)_minmax(0,1fr)_minmax(0,2.5fr)_auto] items-center gap-x-3 rounded-2xl border px-4 py-3 text-sm ${rowClass}`}
                 >
-                  <span className="font-semibold text-slate-300">
+                  <span className="whitespace-nowrap font-semibold text-slate-300">
                     {device?.site_key ?? '?'}
                     {session.charge_mode === 'auto' && (
                       <span className="ml-1.5 rounded bg-sky-800/60 px-1 py-0.5 text-xs font-normal text-sky-300">
@@ -952,11 +977,11 @@ export function MaevingPanel() {
                       />
                     )}
                   </span>
-                  <span className="text-slate-500">{formatDate(session.started_at)}</span>
+                  <span className="whitespace-nowrap text-slate-500">{formatSessionDate(session.started_at, session.ended_at)}</span>
                   <span className="text-slate-400">
                     {formatEnergy(session.wh_delivered)}
                   </span>
-                  <span className="text-slate-500">
+                  <span className="whitespace-nowrap text-slate-500">
                     {session.soc_start_pct ?? '—'}% → {session.actual_soc_pct ?? session.soc_target_pct ?? '—'}%
                   </span>
                   <span className="text-slate-500">
@@ -1008,14 +1033,40 @@ export function MaevingPanel() {
                   ) : (
                     <span className="text-slate-400">—</span>
                   )}
-                  <button
-                    type="button"
-                    onClick={() => setDeleteSessionConfirmId(session.id)}
-                    className="ml-1 rounded p-1 text-slate-600 transition-colors hover:text-red-400"
-                    title="Delete session"
-                  >
-                    🗑
-                  </button>
+                  <div className="flex items-center gap-1.5">
+                    {needsCalibration && (
+                      <>
+                        <div className="flex items-center">
+                          <button
+                            type="button"
+                            onClick={() => setCalibrateSocMap((prev) => ({ ...prev, [session.id]: Math.max(0, calSoc - 1) }))}
+                            className="rounded px-1 py-0.5 text-xs text-slate-400 hover:text-slate-200"
+                          >‹</button>
+                          <span className="w-9 text-center text-xs font-semibold text-slate-200">{calSoc}%</span>
+                          <button
+                            type="button"
+                            onClick={() => setCalibrateSocMap((prev) => ({ ...prev, [session.id]: Math.min(100, calSoc + 1) }))}
+                            className="rounded px-1 py-0.5 text-xs text-slate-400 hover:text-slate-200"
+                          >›</button>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => handleCalibrateSession(session.id, calSoc)}
+                          className="whitespace-nowrap rounded-xl border border-amber-600/60 bg-amber-900/20 px-2.5 py-1 text-xs font-semibold text-amber-400 hover:bg-amber-900/50"
+                        >
+                          Calibrate
+                        </button>
+                      </>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => setDeleteSessionConfirmId(session.id)}
+                      className="rounded p-1 text-slate-600 transition-colors hover:text-red-400"
+                      title="Delete session"
+                    >
+                      🗑
+                    </button>
+                  </div>
                 </div>
               );
             })}
