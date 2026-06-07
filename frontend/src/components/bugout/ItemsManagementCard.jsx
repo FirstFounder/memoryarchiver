@@ -67,9 +67,10 @@ function ItemForm({ initial, onSubmit, onCancel, submitLabel }) {
   );
 }
 
-export function ItemsManagementCard({ items, onAdd, onUpdate, onToggleHidden }) {
+export function ItemsManagementCard({ items, onAdd, onUpdate, onToggleHidden, onDelete }) {
   const [expanded, setExpanded] = useState(false);
   const [editingId, setEditingId] = useState(null);
+  const [addKey, setAddKey] = useState(0);
 
   return (
     <div className="bg-slate-800/40 border border-slate-700 rounded-xl">
@@ -84,7 +85,8 @@ export function ItemsManagementCard({ items, onAdd, onUpdate, onToggleHidden }) 
       {expanded && (
         <div className="px-4 pb-4 flex flex-col gap-4">
           <ItemForm
-            onSubmit={body => onAdd(body)}
+            key={addKey}
+            onSubmit={body => { onAdd(body); setAddKey(k => k + 1); }}
             submitLabel="Add Item"
           />
 
@@ -125,6 +127,12 @@ export function ItemsManagementCard({ items, onAdd, onUpdate, onToggleHidden }) 
                         className="border border-slate-600 text-slate-300 hover:text-slate-100 rounded-lg px-2 py-1 text-xs"
                       >
                         {item.is_hidden ? 'Show' : 'Hide'}
+                      </button>
+                      <button
+                        onClick={() => onDelete(item.id)}
+                        className="border border-red-800 text-red-400 hover:text-red-200 rounded-lg px-2 py-1 text-xs"
+                      >
+                        Delete
                       </button>
                     </div>
                   )}

@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import {
-  getItems, createItem, updateItem,
-  getActivities, createActivity, updateActivity,
+  getItems, createItem, updateItem, deleteItem,
+  getActivities, createActivity, updateActivity, deleteActivity,
   getChecklist, upsertChecklist, deleteChecklistEntry, deleteAutoChecklistForActivity,
 } from '../../api/bugout.js';
 import { BringCard } from './BringCard.jsx';
@@ -137,6 +137,16 @@ export function BugoutProfilePage({ profile }) {
     await reloadAll();
   }
 
+  async function handleDeleteItem(id) {
+    await deleteItem(profile, id);
+    await reloadAll();
+  }
+
+  async function handleDeleteActivity(id) {
+    await deleteActivity(profile, id);
+    await reloadAll();
+  }
+
   return (
     <div className="flex flex-col gap-4">
       <BringCard
@@ -151,6 +161,7 @@ export function BugoutProfilePage({ profile }) {
         onAdd={handleAddItem}
         onUpdate={handleUpdateItem}
         onToggleHidden={handleToggleItemHidden}
+        onDelete={handleDeleteItem}
       />
 
       <DoCard
@@ -167,6 +178,7 @@ export function BugoutProfilePage({ profile }) {
         onAdd={handleAddActivity}
         onUpdate={handleUpdateActivity}
         onToggleHidden={handleToggleActivityHidden}
+        onDelete={handleDeleteActivity}
       />
     </div>
   );
