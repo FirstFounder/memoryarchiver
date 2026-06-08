@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Tooltip } from './Tooltip.jsx';
+import { PROFILE_LABELS, PROFILE_COLORS } from './bugoutProfiles.js';
 
 export function BringCard({ items, checklist, onCheckItem, onUncheckItem }) {
   const [selected, setSelected] = useState('');
@@ -36,7 +37,9 @@ export function BringCard({ items, checklist, onCheckItem, onUncheckItem }) {
       >
         <option value="">— add item to list —</option>
         {availableItems.map(item => (
-          <option key={item.id} value={item.id}>{item.name}</option>
+          <option key={item.id} value={item.id}>
+            {item.origin_profile ? `[${PROFILE_LABELS[item.origin_profile]}] ` : ''}{item.name}
+          </option>
         ))}
       </select>
 
@@ -44,24 +47,40 @@ export function BringCard({ items, checklist, onCheckItem, onUncheckItem }) {
         <p className="text-slate-500 text-sm">No items on list yet.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {checklistItems.map(({ id, name, description, cl }) => (
-            <li key={id} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={cl.is_checked === 1}
-                onChange={() => onUncheckItem({ id, name }, cl)}
-                className="accent-indigo-500 w-4 h-4 shrink-0"
-              />
-              <Tooltip text={description}>
-                <span className={cl.is_checked === 1 ? 'line-through text-slate-500 text-sm' : 'text-slate-100 text-sm'}>
-                  {name}
-                </span>
-              </Tooltip>
-              {cl.source === 'auto' && (
-                <span className="text-xs bg-slate-700 text-slate-400 rounded px-1 py-0.5 ml-1">auto</span>
-              )}
-            </li>
-          ))}
+          {checklistItems.map(({ id, name, description, origin_profile, cl }) => {
+            const originColor = origin_profile ? PROFILE_COLORS[origin_profile] : null;
+            return (
+              <li
+                key={id}
+                className="flex items-center gap-2 rounded"
+                style={originColor ? {
+                  borderLeft: `3px solid ${originColor.border}`,
+                  paddingLeft: '8px',
+                  background: originColor.bg,
+                } : {}}
+              >
+                <input
+                  type="checkbox"
+                  checked={cl.is_checked === 1}
+                  onChange={() => onUncheckItem({ id, name }, cl)}
+                  className="accent-indigo-500 w-4 h-4 shrink-0"
+                />
+                <Tooltip text={description}>
+                  <span className={cl.is_checked === 1 ? 'line-through text-slate-500 text-sm' : 'text-slate-100 text-sm'}>
+                    {name}
+                  </span>
+                </Tooltip>
+                {originColor && (
+                  <span className="text-xs rounded px-1 py-0.5 shrink-0" style={{ color: originColor.text, background: originColor.bg }}>
+                    {PROFILE_LABELS[origin_profile]}
+                  </span>
+                )}
+                {cl.source === 'auto' && (
+                  <span className="text-xs bg-slate-700 text-slate-400 rounded px-1 py-0.5 ml-1 shrink-0">auto</span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

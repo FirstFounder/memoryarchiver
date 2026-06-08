@@ -10,6 +10,46 @@ function validateProfile(profile, reply) {
   return true;
 }
 
+function enrichWithSharedWith(rows, profile, table) {
+  return rows.map(row => {
+    if (row.origin_profile) return row; // copy — no shared_with
+    const copies = db.prepare(
+      `SELECT profile FROM ${table} WHERE origin_profile = ? AND origin_id = ?`
+    ).all(profile, row.id);
+    return { ...row, shared_with: copies.map(c => c.profile) };
+  });
+}
+
+function applySharing(profile, id, shared_with, table) {
+  if (!Array.isArray(shared_with)) return;
+  const original = db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id);
+  if (!original) return;
+
+  const existing = db.prepare(
+    `SELECT profile FROM ${table} WHERE origin_profile = ? AND origin_id = ?`
+  ).all(profile, id);
+  const existingSet = new Set(existing.map(e => e.profile));
+  const newSet = new Set(shared_with.filter(p => VALID_PROFILES.has(p) && p !== profile));
+
+  for (const target of newSet) {
+    if (!existingSet.has(target)) {
+      db.prepare(
+        `INSERT INTO ${table} (profile, name, description, tags, is_overnight, sort_order, origin_profile, origin_id)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(target, original.name, original.description, original.tags,
+             original.is_overnight, original.sort_order, profile, id);
+    }
+  }
+
+  for (const gone of existingSet) {
+    if (!newSet.has(gone)) {
+      db.prepare(
+        `DELETE FROM ${table} WHERE origin_profile = ? AND origin_id = ? AND profile = ?`
+      ).run(profile, id, gone);
+    }
+  }
+}
+
 export default async function bugoutRoutes(fastify) {
   // ── Items ──────────────────────────────────────────────────────────────────
 
@@ -20,7 +60,7 @@ export default async function bugoutRoutes(fastify) {
       WHERE profile = ?
       ORDER BY sort_order ASC, id ASC
     `).all(req.params.profile);
-    return reply.send(rows);
+    return reply.send(enrichWithSharedWith(rows, req.params.profile, 'bugout_items'));
   });
 
   fastify.post('/api/bugout/:profile/items', async (req, reply) => {
@@ -39,12 +79,12 @@ export default async function bugoutRoutes(fastify) {
       sort_order ?? 0,
     );
     const row = db.prepare('SELECT * FROM bugout_items WHERE id = ?').get(result.lastInsertRowid);
-    return reply.code(201).send(row);
+    return reply.code(201).send({ ...row, shared_with: [] });
   });
 
   fastify.put('/api/bugout/:profile/items/:id', async (req, reply) => {
     if (!validateProfile(req.params.profile, reply)) return;
-    const { name, description, tags, is_overnight, is_hidden, sort_order } = req.body ?? {};
+    const { name, description, tags, is_overnight, is_hidden, sort_order, shared_with } = req.body ?? {};
     const existing = db.prepare('SELECT id FROM bugout_items WHERE id = ? AND profile = ?')
       .get(req.params.id, req.params.profile);
     if (!existing) return reply.code(404).send({ error: 'Item not found' });
@@ -58,12 +98,18 @@ export default async function bugoutRoutes(fastify) {
     if (is_hidden !== undefined)   { fields.push('is_hidden = ?');   values.push(is_hidden ? 1 : 0); }
     if (sort_order !== undefined)  { fields.push('sort_order = ?');  values.push(sort_order); }
 
-    if (fields.length === 0) return reply.code(400).send({ error: 'No fields to update' });
+    if (fields.length > 0) {
+      values.push(req.params.id, req.params.profile);
+      db.prepare(`UPDATE bugout_items SET ${fields.join(', ')} WHERE id = ? AND profile = ?`).run(...values);
+    }
 
-    values.push(req.params.id, req.params.profile);
-    db.prepare(`UPDATE bugout_items SET ${fields.join(', ')} WHERE id = ? AND profile = ?`).run(...values);
+    applySharing(req.params.profile, req.params.id, shared_with, 'bugout_items');
+
     const row = db.prepare('SELECT * FROM bugout_items WHERE id = ?').get(req.params.id);
-    return reply.send(row);
+    const copies = db.prepare(
+      'SELECT profile FROM bugout_items WHERE origin_profile = ? AND origin_id = ?'
+    ).all(req.params.profile, req.params.id);
+    return reply.send({ ...row, shared_with: copies.map(c => c.profile) });
   });
 
   fastify.delete('/api/bugout/:profile/items/:id', async (req, reply) => {
@@ -84,7 +130,7 @@ export default async function bugoutRoutes(fastify) {
       WHERE profile = ?
       ORDER BY sort_order ASC, id ASC
     `).all(req.params.profile);
-    return reply.send(rows);
+    return reply.send(enrichWithSharedWith(rows, req.params.profile, 'bugout_activities'));
   });
 
   fastify.post('/api/bugout/:profile/activities', async (req, reply) => {
@@ -103,12 +149,12 @@ export default async function bugoutRoutes(fastify) {
       sort_order ?? 0,
     );
     const row = db.prepare('SELECT * FROM bugout_activities WHERE id = ?').get(result.lastInsertRowid);
-    return reply.code(201).send(row);
+    return reply.code(201).send({ ...row, shared_with: [] });
   });
 
   fastify.put('/api/bugout/:profile/activities/:id', async (req, reply) => {
     if (!validateProfile(req.params.profile, reply)) return;
-    const { name, description, tags, is_overnight, is_hidden, sort_order } = req.body ?? {};
+    const { name, description, tags, is_overnight, is_hidden, sort_order, shared_with } = req.body ?? {};
     const existing = db.prepare('SELECT id FROM bugout_activities WHERE id = ? AND profile = ?')
       .get(req.params.id, req.params.profile);
     if (!existing) return reply.code(404).send({ error: 'Activity not found' });
@@ -122,12 +168,18 @@ export default async function bugoutRoutes(fastify) {
     if (is_hidden !== undefined)   { fields.push('is_hidden = ?');   values.push(is_hidden ? 1 : 0); }
     if (sort_order !== undefined)  { fields.push('sort_order = ?');  values.push(sort_order); }
 
-    if (fields.length === 0) return reply.code(400).send({ error: 'No fields to update' });
+    if (fields.length > 0) {
+      values.push(req.params.id, req.params.profile);
+      db.prepare(`UPDATE bugout_activities SET ${fields.join(', ')} WHERE id = ? AND profile = ?`).run(...values);
+    }
 
-    values.push(req.params.id, req.params.profile);
-    db.prepare(`UPDATE bugout_activities SET ${fields.join(', ')} WHERE id = ? AND profile = ?`).run(...values);
+    applySharing(req.params.profile, req.params.id, shared_with, 'bugout_activities');
+
     const row = db.prepare('SELECT * FROM bugout_activities WHERE id = ?').get(req.params.id);
-    return reply.send(row);
+    const copies = db.prepare(
+      'SELECT profile FROM bugout_activities WHERE origin_profile = ? AND origin_id = ?'
+    ).all(req.params.profile, req.params.id);
+    return reply.send({ ...row, shared_with: copies.map(c => c.profile) });
   });
 
   fastify.delete('/api/bugout/:profile/activities/:id', async (req, reply) => {
@@ -186,8 +238,6 @@ export default async function bugoutRoutes(fastify) {
   fastify.delete('/api/bugout/:profile/checklist/auto/:activity_id', async (req, reply) => {
     if (!validateProfile(req.params.profile, reply)) return;
     const activityId = Number(req.params.activity_id);
-    // Delete auto-item rows for this activity_id where the item's entity_id
-    // does not appear as auto_from_activity_id in any other remaining activity checklist row.
     db.prepare(`
       DELETE FROM bugout_checklist
       WHERE profile = ?

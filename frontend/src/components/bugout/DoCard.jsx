@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Tooltip } from './Tooltip.jsx';
+import { PROFILE_LABELS, PROFILE_COLORS } from './bugoutProfiles.js';
 
 export function DoCard({ activities, checklist, onCheckActivity, onUncheckActivity, overnightMode, onToggleOvernight }) {
   const [selected, setSelected] = useState('');
@@ -53,7 +54,7 @@ export function DoCard({ activities, checklist, onCheckActivity, onUncheckActivi
         <option value="">— add activity to list —</option>
         {availableActivities.map(a => (
           <option key={a.id} value={a.id}>
-            {a.name}{a.is_overnight === 1 ? ' 🌙' : ''}
+            {a.origin_profile ? `[${PROFILE_LABELS[a.origin_profile]}] ` : ''}{a.name}{a.is_overnight === 1 ? ' 🌙' : ''}
           </option>
         ))}
       </select>
@@ -62,24 +63,40 @@ export function DoCard({ activities, checklist, onCheckActivity, onUncheckActivi
         <p className="text-slate-500 text-sm">No activities on list yet.</p>
       ) : (
         <ul className="flex flex-col gap-1.5">
-          {checklistActivities.map(({ id, name, description, is_overnight, cl }) => (
-            <li key={id} className="flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={cl.is_checked === 1}
-                onChange={() => onUncheckActivity({ id, name })}
-                className="accent-indigo-500 w-4 h-4 shrink-0"
-              />
-              <Tooltip text={description}>
-                <span className={cl.is_checked === 1 ? 'line-through text-slate-500 text-sm' : 'text-slate-100 text-sm'}>
-                  {name}
-                </span>
-              </Tooltip>
-              {is_overnight === 1 && (
-                <span className="text-xs">🌙</span>
-              )}
-            </li>
-          ))}
+          {checklistActivities.map(({ id, name, description, is_overnight, origin_profile, cl }) => {
+            const originColor = origin_profile ? PROFILE_COLORS[origin_profile] : null;
+            return (
+              <li
+                key={id}
+                className="flex items-center gap-2 rounded"
+                style={originColor ? {
+                  borderLeft: `3px solid ${originColor.border}`,
+                  paddingLeft: '8px',
+                  background: originColor.bg,
+                } : {}}
+              >
+                <input
+                  type="checkbox"
+                  checked={cl.is_checked === 1}
+                  onChange={() => onUncheckActivity({ id, name })}
+                  className="accent-indigo-500 w-4 h-4 shrink-0"
+                />
+                <Tooltip text={description}>
+                  <span className={cl.is_checked === 1 ? 'line-through text-slate-500 text-sm' : 'text-slate-100 text-sm'}>
+                    {name}
+                  </span>
+                </Tooltip>
+                {is_overnight === 1 && (
+                  <span className="text-xs shrink-0">🌙</span>
+                )}
+                {originColor && (
+                  <span className="text-xs rounded px-1 py-0.5 shrink-0" style={{ color: originColor.text, background: originColor.bg }}>
+                    {PROFILE_LABELS[origin_profile]}
+                  </span>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </div>

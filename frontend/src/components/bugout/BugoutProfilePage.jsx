@@ -158,6 +158,7 @@ export function BugoutProfilePage({ profile }) {
 
       <ItemsManagementCard
         items={items}
+        currentProfile={profile}
         onAdd={handleAddItem}
         onUpdate={handleUpdateItem}
         onToggleHidden={handleToggleItemHidden}
@@ -175,6 +176,7 @@ export function BugoutProfilePage({ profile }) {
 
       <ActivitiesManagementCard
         activities={activities}
+        currentProfile={profile}
         onAdd={handleAddActivity}
         onUpdate={handleUpdateActivity}
         onToggleHidden={handleToggleActivityHidden}
