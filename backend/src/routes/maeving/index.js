@@ -568,8 +568,10 @@ export default async function maevingRoutes(fastify) {
     const legRideIds  = [leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id,
                          leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id];
 
+    let sessionTotalMiles = 0;
     for (let n = 1; n <= 8; n++) {
       const rideId = legRideIds[n - 1];
+      const tripId = legTripIds[n - 1];
       if (rideId) {
         const ride = db.prepare('SELECT rebel_cost FROM maeving_rides WHERE id = ?').get(rideId);
         if (ride?.rebel_cost != null) {
@@ -577,10 +579,13 @@ export default async function maevingRoutes(fastify) {
           rebelCostTotal += ride.rebel_cost;
           hasRebelCost = true;
         }
-      } else {
-        const tripId = legTripIds[n - 1];
-        if (tripId) {
-          const trip = db.prepare('SELECT distance_miles FROM maeving_trips WHERE id = ?').get(tripId);
+      }
+      if (tripId) {
+        const trip = db.prepare('SELECT distance_miles FROM maeving_trips WHERE id = ?').get(tripId);
+        if (trip?.distance_miles != null) {
+          sessionTotalMiles += trip.distance_miles;
+        }
+        if (!rideId) {
           const cost = computeRebelCostSync(trip?.distance_miles);
           if (cost != null) {
             legRebelCostValues[n] = cost;
@@ -640,8 +645,9 @@ export default async function maevingRoutes(fastify) {
          leg_1_started_at, leg_2_started_at, leg_3_started_at, leg_4_started_at,
          leg_5_started_at, leg_6_started_at, leg_7_started_at, leg_8_started_at,
          leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id,
-         leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id,
+         total_miles)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       device_id,
       now,
@@ -718,6 +724,7 @@ export default async function maevingRoutes(fastify) {
       leg_6_ride_id ?? null,
       leg_7_ride_id ?? null,
       leg_8_ride_id ?? null,
+      sessionTotalMiles > 0 ? sessionTotalMiles : null,
     );
 
     if (avgWhPerMile != null) {
@@ -1091,10 +1098,10 @@ export default async function maevingRoutes(fastify) {
       WHERE s.status IN ('complete', 'charger_complete')
     `).get();
     const milesTotals = db.prepare(`
-      SELECT COALESCE(SUM(t.distance_miles), 0) AS total_miles
-      FROM maeving_rides r
-      JOIN maeving_trips t ON t.id = r.trip_id
-      WHERE r.finished_at IS NOT NULL
+      SELECT COALESCE(SUM(total_miles), 0) AS total_miles
+      FROM maeving_sessions
+      WHERE status IN ('complete', 'charger_complete')
+        AND total_miles IS NOT NULL
     `).get();
     const taperOnsetByDevice = db.prepare(`
       SELECT c.device_id, d.label AS device_label,
