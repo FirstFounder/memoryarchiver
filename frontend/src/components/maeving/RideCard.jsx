@@ -32,6 +32,7 @@ export function RideCard() {
   const timerRef = useRef(null);
 
   const [telemetry, setTelemetry] = useState(null);
+  const configRef = useRef(null);
 
   // Post-stop state
   const [stopped, setStopped] = useState(false);
@@ -43,6 +44,14 @@ export function RideCard() {
   const [overheatMotor, setOverheatMotor] = useState(false);
   const [overheatLevel, setOverheatLevel] = useState(2);
   const [sportyLevel, setSportyLevel] = useState(null);
+
+  function computeEstimatedEndSoc(startSocPct, tripMiles, cfg) {
+    if (startSocPct == null || !tripMiles || !cfg?.avg_wh_per_mile || !cfg?.effective_capacity_wh) {
+      return startSocPct ?? 50;
+    }
+    const socDrop = (tripMiles * cfg.avg_wh_per_mile / cfg.effective_capacity_wh) * 100;
+    return Math.max(0, Math.round(startSocPct - socDrop));
+  }
 
   function resetMetadata() {
     setStopped(false);
@@ -73,7 +82,7 @@ export function RideCard() {
       const ride = await getActiveRide();
       if (ride) {
         setActiveRide(ride);
-        setEndSoc(ride.start_soc_pct ?? 50);
+        setEndSoc(computeEstimatedEndSoc(ride.start_soc_pct, ride.trip_miles, configRef.current));
         setUiState('active');
       } else {
         setActiveRide(null);
@@ -99,6 +108,7 @@ export function RideCard() {
     getLegs().then(setLegs).catch(() => {});
     getConfig().then((cfg) => {
       setStartSoc(cfg.prev_max_soc_pct ?? 50);
+      configRef.current = cfg;
     }).catch(() => {});
     syncRide();
     const poll = setInterval(syncRide, 30_000);
@@ -115,7 +125,7 @@ export function RideCard() {
     try {
       const ride = await startRide({ trip_id: Number(selectedLegId), start_soc_pct: startSoc });
       setActiveRide(ride);
-      setEndSoc(startSoc);
+      setEndSoc(computeEstimatedEndSoc(ride.start_soc_pct ?? startSoc, ride.trip_miles, configRef.current));
       setUiState('active');
     } catch (err) {
       setError(err.message);
@@ -297,28 +307,23 @@ export function RideCard() {
         {/* ── Stop / Finish controls (both mobile and desktop) ──────── */}
         <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
           {!stopped ? (
-            (() => {
-              const socValid = endSoc < (activeRide.start_soc_pct ?? 101);
-              return (
-                <>
-                  <button
-                    type="button"
-                    onClick={handleStop}
-                    disabled={stopping || !socValid}
-                    className={`flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors ${
-                      stopping ? 'opacity-60' : socValid ? 'opacity-100 hover:bg-red-600' : 'opacity-40 cursor-not-allowed'
-                    }`}
-                  >
-                    <span className="text-xl font-bold">
-                      {stopping ? 'Stopping…' : 'Stop'}
-                    </span>
-                  </button>
-                  <div className="mt-3">
-                    <SOCRoller min={0} max={95} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
-                  </div>
-                </>
-              );
-            })()
+            <>
+              <button
+                type="button"
+                onClick={handleStop}
+                disabled={stopping}
+                className={`flex min-h-[72px] w-full flex-col items-center justify-center rounded-[2rem] bg-red-700 px-6 py-5 text-white transition-colors ${
+                  stopping ? 'opacity-60' : 'hover:bg-red-600'
+                }`}
+              >
+                <span className="text-xl font-bold">
+                  {stopping ? 'Stopping…' : 'Stop'}
+                </span>
+              </button>
+              <div className="mt-3">
+                <SOCRoller min={0} max={95} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
+              </div>
+            </>
           ) : (
             <>
               <button
