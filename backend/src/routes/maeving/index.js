@@ -1090,6 +1090,12 @@ export default async function maevingRoutes(fastify) {
       JOIN maeving_devices d ON d.id = s.device_id
       WHERE s.status IN ('complete', 'charger_complete')
     `).get();
+    const milesTotals = db.prepare(`
+      SELECT COALESCE(SUM(t.distance_miles), 0) AS total_miles
+      FROM maeving_rides r
+      JOIN maeving_trips t ON t.id = r.trip_id
+      WHERE r.finished_at IS NOT NULL
+    `).get();
     const taperOnsetByDevice = db.prepare(`
       SELECT c.device_id, d.label AS device_label,
              ROUND(AVG(c.taper_onset_soc_pct), 1) AS avg_taper_onset_soc,
@@ -1117,6 +1123,7 @@ export default async function maevingRoutes(fastify) {
       total_wh_added: totals.total_wh_added,
       total_money_spent: totals.total_money_spent,
       total_rebel_cost: totals.total_rebel_cost,
+      total_miles: milesTotals.total_miles,
       taperOnsetByDevice,
       latestChargeCurve: latestCurveRow ? {
         ...latestCurveRow,

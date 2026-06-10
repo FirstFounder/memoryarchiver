@@ -1011,7 +1011,7 @@ export function MaevingPanel() {
                     )
                   ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
                     <span className="flex flex-col items-start gap-0.5 text-xs leading-tight">
-                      <span className="text-green-400">
+                      <span className={(session.hourly_savings_dollars ?? 0) > 0 ? 'text-green-400' : 'text-red-400'}>
                         Hourly: ${session.actual_cost_dollars.toFixed(2)}
                       </span>
                       <span className="text-amber-400">
@@ -1458,7 +1458,7 @@ export function MaevingPanel() {
                           )
                         ) : session.rebel_cost_total != null && session.actual_cost_dollars != null ? (
                           <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
-                            <span className="text-green-400">
+                            <span className={(session.hourly_savings_dollars ?? 0) > 0 ? 'text-green-400' : 'text-red-400'}>
                               Hourly: ${session.actual_cost_dollars.toFixed(2)}
                             </span>
                             {session.fixed_rate_cost_dollars != null && (
@@ -1472,7 +1472,7 @@ export function MaevingPanel() {
                           </span>
                         ) : session.fixed_rate_cost_dollars != null && session.actual_cost_dollars != null ? (
                           <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
-                            <span className="text-slate-400">
+                            <span className={(session.hourly_savings_dollars ?? 0) > 0 ? 'text-green-400' : 'text-red-400'}>
                               Hourly: ${session.actual_cost_dollars.toFixed(2)}
                             </span>
                             <span className="text-slate-500">

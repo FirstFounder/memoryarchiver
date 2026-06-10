@@ -154,6 +154,7 @@ export default function App() {
 
   const [maevingSavings, setMaevingSavings] = useState(null);
   const [maevingWhPerMile, setMaevingWhPerMile] = useState(null);
+  const [maevingTotalMiles, setMaevingTotalMiles] = useState(null);
   const [maevingTotalKwh, setMaevingTotalKwh] = useState(null);
   const [maevingTotalSpent, setMaevingTotalSpent] = useState(null);
   const [maevingRebelTotal, setMaevingRebelTotal] = useState(null);
@@ -168,6 +169,7 @@ export default function App() {
           if (active) {
             setMaevingSavings(data.running_savings_dollars ?? null);
             setMaevingWhPerMile(data.avg_wh_per_mile ?? null);
+            setMaevingTotalMiles(data.total_miles ?? null);
             setMaevingTotalKwh(data.total_wh_added != null ? data.total_wh_added / 1000 : null);
             setMaevingTotalSpent(data.total_money_spent ?? null);
             setMaevingRebelTotal(data.total_rebel_cost ?? null);
@@ -296,6 +298,14 @@ export default function App() {
         <h1 className="text-slate-100 font-semibold tracking-tight">Memory Archiver</h1>
         <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
           H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
+          {isMaeving && maevingTotalMiles != null && (
+            <span className="flex flex-col items-center gap-0">
+              <span className="inline-flex items-center rounded bg-white px-1.5 py-0.5 text-base font-semibold" style={{ color: '#0047AB', fontSize: '1.2em' }}>
+                {Math.round(maevingTotalMiles)} mi
+              </span>
+              <span className="text-xs text-slate-500 leading-tight">miles logged</span>
+            </span>
+          )}
           {isMaeving && maevingWhPerMile != null && (
             <span className="flex flex-col items-center gap-0">
               <span className="inline-flex items-center rounded bg-white px-1.5 py-0.5 text-base font-semibold" style={{ color: '#0047AB', fontSize: '1.2em' }}>
