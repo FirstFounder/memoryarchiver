@@ -1,5 +1,72 @@
 import { useEffect, useMemo, useRef } from 'react';
 
+export function SOCSelector({ min, max, value, onChange, label }) {
+  const holdRef = useRef(null);
+
+  function clearHold() {
+    if (holdRef.current) {
+      clearTimeout(holdRef.current.timeout);
+      clearInterval(holdRef.current.interval);
+      holdRef.current = null;
+    }
+  }
+
+  function startHold(action) {
+    action();
+    const timeout = setTimeout(() => {
+      const interval = setInterval(action, 80);
+      holdRef.current = { timeout: null, interval };
+    }, 350);
+    holdRef.current = { timeout, interval: null };
+  }
+
+  useEffect(() => () => clearHold(), []);
+
+  const atMin = value <= min;
+  const atMax = value >= max;
+
+  function decrement() { if (value > min) onChange(value - 1); }
+  function increment() { if (value < max) onChange(value + 1); }
+
+  const btnBase =
+    'flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-xl text-xl font-light text-slate-300 transition-colors select-none touch-none hover:bg-[color:var(--color-surface-0)] active:bg-[color:var(--color-surface-0)] disabled:opacity-25';
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-400">{label}</p>
+      <div className="flex items-center gap-1 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] px-1 py-1.5">
+        <button
+          type="button"
+          disabled={atMin}
+          className={btnBase}
+          onMouseDown={() => startHold(decrement)}
+          onMouseUp={clearHold}
+          onMouseLeave={clearHold}
+          onTouchStart={(e) => { e.preventDefault(); startHold(decrement); }}
+          onTouchEnd={clearHold}
+        >
+          ‹
+        </button>
+        <span className="flex-1 text-center text-2xl font-semibold tabular-nums text-slate-100">
+          {value}%
+        </span>
+        <button
+          type="button"
+          disabled={atMax}
+          className={btnBase}
+          onMouseDown={() => startHold(increment)}
+          onMouseUp={clearHold}
+          onMouseLeave={clearHold}
+          onTouchStart={(e) => { e.preventDefault(); startHold(increment); }}
+          onTouchEnd={clearHold}
+        >
+          ›
+        </button>
+      </div>
+    </div>
+  );
+}
+
 const ITEM_HEIGHT = 72;
 const VISIBLE_ROWS = 5;
 

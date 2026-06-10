@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getActiveRide, getLegs, getConfig, startRide, finishRide, updateRide, getActiveRideLiveTelemetry } from '../../api/maeving.js';
-import { SOCRoller } from '../tesla/SOCRoller.jsx';
+import { SOCRoller, SOCSelector } from '../tesla/SOCRoller.jsx';
 import { isMobile } from '../../lib/isMobile.js';
 
 function windDirLabel(deg) {
@@ -441,10 +441,9 @@ export function RideCard() {
     );
   }
 
-  // State B — leg selector with Starting SOC roller
+  // State B — leg selector with Starting SOC selector
   const selectedLeg = legs.find(l => String(l.id) === String(selectedLegId));
   if (uiState === 'selecting') {
-    const mobile = isMobile();
     return (
       <div className="mx-auto w-full max-w-5xl">
         <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
@@ -464,62 +463,27 @@ export function RideCard() {
             </select>
             <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-slate-400">▾</span>
           </div>
-          {mobile ? (
-            /* Mobile: three-column layout — SOC roller | Start | Cancel */
-            <div className="mt-2 flex gap-2">
-              <div className="w-1/3 overflow-hidden">
-                <div className="scale-75 origin-top-left">
-                  <SOCRoller min={0} max={95} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
-                </div>
-              </div>
+          {/* SOC selector + action buttons (shared mobile/desktop) */}
+          <div className="mt-3 flex flex-col gap-3">
+            <SOCSelector min={0} max={95} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
+            <div className="flex gap-2">
               <button
                 type="button"
                 onClick={handleGo}
                 disabled={!selectedLegId || starting}
-                className="w-1/3 min-h-[180px] flex flex-col items-center justify-center rounded-[2rem] bg-green-700 px-4 py-5 text-white transition-colors hover:bg-green-600 disabled:opacity-60"
+                className="flex-1 flex min-h-[44px] items-center justify-center rounded-2xl bg-green-700 px-4 text-base font-semibold text-white transition-colors hover:bg-green-600 disabled:opacity-60"
               >
-                <span className="text-xl font-bold">
-                  {starting ? 'Starting…' : 'Start'}
-                </span>
+                {starting ? 'Starting…' : 'Start'}
               </button>
               <button
                 type="button"
                 onClick={() => { setUiState('idle'); setSelectedLegId(''); setError(''); }}
-                className="w-1/3 min-h-[180px] flex flex-col items-center justify-center rounded-[2rem] border border-[color:var(--color-border)] bg-transparent px-4 py-5 text-slate-400 transition-colors hover:border-slate-500"
+                className="flex min-h-[44px] items-center justify-center rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 text-sm text-slate-400 transition-colors hover:border-slate-500"
               >
-                <span className="text-base font-medium">Cancel</span>
+                Cancel
               </button>
             </div>
-          ) : (
-            /* Desktop: Cancel appended to select row, then full-width Start button below */
-            <>
-              <div className="mt-2 flex">
-                <div className="relative flex-1">
-                  {/* cancel lives beside select on desktop */}
-                </div>
-              </div>
-              <div className="mt-2 flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => { setUiState('idle'); setSelectedLegId(''); setError(''); }}
-                  className="rounded-xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-4 min-h-[56px] text-sm text-slate-400 transition-colors hover:border-slate-500"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={handleGo}
-                  disabled={!selectedLegId || starting}
-                  className="flex-1 flex min-h-[72px] items-center justify-center rounded-[2rem] bg-green-700 px-6 py-5 text-xl font-bold text-white transition-colors hover:bg-green-600 disabled:opacity-60"
-                >
-                  {starting ? 'Starting…' : 'Start'}
-                </button>
-              </div>
-              <div className="mt-4">
-                <SOCRoller min={0} max={95} value={startSoc} onChange={setStartSoc} label="Starting SOC" />
-              </div>
-            </>
-          )}
+          </div>
           {error && (
             <div className="mt-3 rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
               {error}

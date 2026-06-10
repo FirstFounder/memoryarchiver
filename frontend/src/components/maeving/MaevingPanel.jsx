@@ -19,7 +19,7 @@ import {
   stopSession,
   updateRide,
 } from '../../api/maeving.js';
-import { SOCRoller } from '../tesla/SOCRoller.jsx';
+import { SOCSelector } from '../tesla/SOCRoller.jsx';
 import RideTelemetryDetail from './RideTelemetryDetail.jsx';
 import { isMobile } from '../../lib/isMobile.js';
 
@@ -814,26 +814,22 @@ export function MaevingPanel() {
                 Plug In
               </p>
 
-              {/* SOC rollers */}
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
-                  <SOCRoller
-                    min={0}
-                    max={95}
-                    value={socStart}
-                    onChange={setSocStart}
-                    label="Current SOC"
-                  />
-                </div>
-                <div className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] p-4">
-                  <SOCRoller
-                    min={20}
-                    max={95}
-                    value={socTarget}
-                    onChange={setSocTarget}
-                    label="Target SOC"
-                  />
-                </div>
+              {/* SOC selectors */}
+              <div className="grid grid-cols-2 gap-3">
+                <SOCSelector
+                  min={0}
+                  max={95}
+                  value={socStart}
+                  onChange={setSocStart}
+                  label="Current SOC"
+                />
+                <SOCSelector
+                  min={20}
+                  max={95}
+                  value={socTarget}
+                  onChange={setSocTarget}
+                  label="Target SOC"
+                />
               </div>
 
               {/* Prestaged rides */}
