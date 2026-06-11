@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { getCoopStatus, getLastCoopCheck } from '../../api/coop.js';
 import { useCoopStore } from '../../store/coopStore.js';
-import { useAppConfigStore } from '../../store/appConfigStore.js';
 import { DoorCard } from './DoorCard.jsx';
 import { SchedulerCard } from './SchedulerCard.jsx';
 import { CameraCard } from './CameraCard.jsx';
@@ -59,13 +58,6 @@ function CameraSection({ cameraBaseUrl }) {
 export function CoopPanel() {
   const applyStatus = useCoopStore(s => s.applyStatus);
   const setLastCheck = useCoopStore(s => s.setLastCheck);
-  const deviceRole  = useAppConfigStore(s => s.deviceRole);
-  const hubUrl      = useAppConfigStore(s => s.hubUrl);
-
-  // On hub: use relative URL (same origin). On non-hub: use hub's absolute URL.
-  // If hubUrl is not configured on a non-hub node, CameraSection gets no data
-  // and renders nothing — acceptable degradation.
-  const cameraBaseUrl = deviceRole === 'hub' ? '' : hubUrl;
 
   useEffect(() => {
     getCoopStatus().then(applyStatus).catch(() => applyStatus({ error: 'unreachable' }));
@@ -78,7 +70,7 @@ export function CoopPanel() {
         <DoorCard />
         <SchedulerCard />
       </div>
-      <CameraSection cameraBaseUrl={cameraBaseUrl} />
+      <CameraSection cameraBaseUrl="" />
     </div>
   );
 }
