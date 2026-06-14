@@ -1300,7 +1300,7 @@ export default function MaevingPage() {
               )}
 
               {/* Historical Charge Sessions (all, collapsible) */}
-              {allSessions.length > 5 && (
+              {allSessions.length > 0 && (
                 <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">Historical Charge Sessions</p>
@@ -1311,7 +1311,7 @@ export default function MaevingPage() {
                   </div>
                   {showHistoricalSessions && (
                     <div className="flex flex-col gap-2 overflow-x-auto">
-                      {allSessions.slice(5).map(session => {
+                      {allSessions.map(session => {
                         const device = devices.find(d => d.id === session.device_id);
                         return (
                           <React.Fragment key={session.id}>
