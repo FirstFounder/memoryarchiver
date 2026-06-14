@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { getActiveRide, getLegs, getConfig, startRide, finishRide, updateRide, getActiveRideLiveTelemetry } from '../../api/maeving.js';
-import { SOCRoller, SOCSelector } from '../tesla/SOCRoller.jsx';
+import { SOCSelector } from '../tesla/SOCRoller.jsx';
 import { isMobile } from '../../lib/isMobile.js';
 
 function windDirLabel(deg) {
@@ -321,7 +321,7 @@ export function RideCard() {
                 </span>
               </button>
               <div className="mt-3">
-                <SOCRoller min={0} max={95} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
+                <SOCSelector min={0} max={95} value={endSoc} onChange={setEndSoc} label="Ending SOC" />
               </div>
             </>
           ) : (

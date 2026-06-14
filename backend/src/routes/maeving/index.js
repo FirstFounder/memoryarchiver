@@ -266,6 +266,13 @@ export default async function maevingRoutes(fastify) {
 
     db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(end_soc_pct);
 
+    if (whPerMile != null) {
+      const avgRow = db.prepare('SELECT AVG(wh_per_mile) AS avg FROM maeving_rides WHERE wh_per_mile IS NOT NULL').get();
+      if (avgRow?.avg != null) {
+        db.prepare('UPDATE maeving_config SET avg_wh_per_mile = ? WHERE id = 1').run(avgRow.avg);
+      }
+    }
+
     return reply.send({
       id: ride.id,
       trip_id: ride.trip_id,
@@ -369,6 +376,24 @@ export default async function maevingRoutes(fastify) {
            notes !== undefined ? notes : ride.notes, newTripId,
            windbreaker, overheatPack, overheatMotor, overheatLevel, sportyLevel,
            ride.id);
+    if (end_soc_pct !== undefined || trip_id !== undefined) {
+      const latestRide = db.prepare(`
+        SELECT end_soc_pct FROM maeving_rides
+        WHERE finished_at IS NOT NULL AND end_soc_pct IS NOT NULL
+        ORDER BY finished_at DESC LIMIT 1
+      `).get();
+      if (latestRide?.end_soc_pct != null) {
+        db.prepare('UPDATE maeving_config SET prev_max_soc_pct = ? WHERE id = 1').run(latestRide.end_soc_pct);
+      }
+    }
+
+    if (end_soc_pct !== undefined || trip_id !== undefined) {
+      const avgRow = db.prepare('SELECT AVG(wh_per_mile) AS avg FROM maeving_rides WHERE wh_per_mile IS NOT NULL').get();
+      if (avgRow?.avg != null) {
+        db.prepare('UPDATE maeving_config SET avg_wh_per_mile = ? WHERE id = 1').run(avgRow.avg);
+      }
+    }
+
     const updated = db.prepare(`
       SELECT r.*, t.description AS trip_name, t.distance_miles AS trip_miles
       FROM maeving_rides r

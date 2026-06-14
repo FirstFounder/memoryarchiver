@@ -39,11 +39,10 @@ export function SOCSelector({ min, max, value, onChange, label }) {
           type="button"
           disabled={atMin}
           className={btnBase}
-          onMouseDown={() => startHold(decrement)}
-          onMouseUp={clearHold}
-          onMouseLeave={clearHold}
-          onTouchStart={(e) => { e.preventDefault(); startHold(decrement); }}
-          onTouchEnd={clearHold}
+          onPointerDown={(e) => { e.preventDefault(); startHold(decrement); }}
+          onPointerUp={clearHold}
+          onPointerLeave={clearHold}
+          onPointerCancel={clearHold}
         >
           ‹
         </button>
@@ -54,11 +53,10 @@ export function SOCSelector({ min, max, value, onChange, label }) {
           type="button"
           disabled={atMax}
           className={btnBase}
-          onMouseDown={() => startHold(increment)}
-          onMouseUp={clearHold}
-          onMouseLeave={clearHold}
-          onTouchStart={(e) => { e.preventDefault(); startHold(increment); }}
-          onTouchEnd={clearHold}
+          onPointerDown={(e) => { e.preventDefault(); startHold(increment); }}
+          onPointerUp={clearHold}
+          onPointerLeave={clearHold}
+          onPointerCancel={clearHold}
         >
           ›
         </button>
