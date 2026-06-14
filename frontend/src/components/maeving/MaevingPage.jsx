@@ -1462,7 +1462,7 @@ export default function MaevingPage() {
               <LegsCard />
 
               {/* All Trips (collapsible, default collapsed) */}
-              {tripSessions.length > 5 && (
+              {tripSessions.length > 0 && (
                 <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
                   <div className="flex items-center justify-between mb-4">
                     <p className="text-sm font-semibold uppercase tracking-[0.28em] text-slate-400">All Trips</p>
@@ -1477,7 +1477,7 @@ export default function MaevingPage() {
                         <span>Trip</span><span>Date</span><span>Trip Time</span><span>Wh/mi</span><span className="text-right">Cost</span>
                       </div>
                       <div className="flex flex-col gap-2">
-                        {tripSessions.slice(5).map(session => (
+                        {tripSessions.map(session => (
                           <TripSessionRows
                             key={session.id}
                             session={session} devices={devices} trips={trips}
