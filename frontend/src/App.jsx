@@ -295,7 +295,9 @@ export default function App() {
       {/* ── Header ─────────────────────────────────────────────────────────── */}
       <header className="border-b border-slate-800 px-6 py-4 flex items-center gap-3">
         <span className="text-xl">🎬</span>
-        <h1 className="text-slate-100 font-semibold tracking-tight">Memory Archiver</h1>
+        <h1 className="text-slate-100 font-semibold tracking-tight">
+          <a href="/" className="hover:text-indigo-300 transition-colors">Memory Archiver</a>
+        </h1>
         <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
           H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
           {isMaeving && maevingTotalMiles != null && maevingTotalMiles > 0 && (

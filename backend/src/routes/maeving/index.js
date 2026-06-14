@@ -512,12 +512,13 @@ export default async function maevingRoutes(fastify) {
   // ── Sessions ──────────────────────────────────────────────────────────────────
 
   fastify.get('/api/maeving/sessions', async (req, reply) => {
-    const { device_id, status } = req.query;
+    const { device_id, status, limit } = req.query;
     let sql = 'SELECT * FROM maeving_sessions WHERE 1=1';
     const params = [];
     if (device_id) { sql += ' AND device_id = ?'; params.push(device_id); }
     if (status) { sql += ' AND status = ?'; params.push(status); }
-    sql += ' ORDER BY started_at DESC LIMIT 50';
+    const rowLimit = Math.min(parseInt(limit, 10) || 50, 500);
+    sql += ` ORDER BY started_at DESC LIMIT ${rowLimit}`;
     return reply.send(db.prepare(sql).all(...params));
   });
 

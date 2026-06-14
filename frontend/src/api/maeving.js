@@ -118,6 +118,10 @@ export async function getSessions(params = {}) {
   return apiFetch(`/api/maeving/sessions${q ? `?${q}` : ''}`);
 }
 
+export async function getAllSessions() {
+  return apiFetch('/api/maeving/sessions?limit=500');
+}
+
 export async function getSession(id) {
   return apiFetch(`/api/maeving/sessions/${id}`);
 }
