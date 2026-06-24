@@ -1,8 +1,9 @@
 import db from '../db/client.js';
 import { getPlugStatus, setPlugState } from './maevingControl.js';
-import { fetchCurrentHourPrice } from './coMedPrices.js';
+import { fetchCurrentHourPrice, getMonthlyAdjustmentCents } from './coMedPrices.js';
 import { sessionReadingsStats, invalidateActiveSessionCache, CHARGE_COMPLETE_WATTS, CHARGE_COMPLETE_CONSECUTIVE } from './maevingMqtt.js';
 import { recordSessionComplete, getConfig, computeChargeCurve } from './maevingCalibration.js';
+import { scrapeMonthlyRates } from './maevingRateScraper.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
 const MAEVING_BATTERY_KWH = 2.88;
@@ -19,6 +20,7 @@ const probeActiveSince = {};
 
 let pollingInterval = null;
 let schedulerLogger = null;
+let lastRateScrapeMonth = null; // 'YYYY-MM' of last successful scrape attempt
 
 function getComedBaseRateCents() {
   const month = new Date().getMonth() + 1; // 1-12
@@ -100,7 +102,7 @@ function getFixed2AmStart() {
 // Returns { scheduledStartAt, estimatedCostDollars, priceWindowAvgCents }.
 export async function computeOvernightStart(socStart, socTarget, _departureTime) {
   const kwhNeeded = Math.max(0, ((socTarget - socStart) / 100) * MAEVING_BATTERY_KWH);
-  const fixedRateCents = getComedFixedTotalCents();
+  const fixedRateCents = getComedFixedTotalCents() + getMonthlyAdjustmentCents(db);
   const estimatedCostDollars = (fixedRateCents * kwhNeeded) / 100;
   return {
     scheduledStartAt: getFixed2AmStart(),
@@ -115,6 +117,21 @@ export function getFallbackScheduledStartAt() {
 }
 
 async function runScheduledSessions() {
+  // Monthly rate scrape: run on 1st of month between midnight and 00:05 CT
+  const ctNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
+  const ctDate = ctNow.getDate();
+  const ctHour = ctNow.getHours();
+  const ctMinute = ctNow.getMinutes();
+  const currentRateMonth = `${ctNow.getFullYear()}-${String(ctNow.getMonth() + 1).padStart(2, '0')}`;
+  if (ctDate === 1 && ctHour === 0 && ctMinute < 5 && lastRateScrapeMonth !== currentRateMonth) {
+    lastRateScrapeMonth = currentRateMonth;
+    scrapeMonthlyRates(db, schedulerLogger).then(results => {
+      schedulerLogger?.info({ results, rateMonth: currentRateMonth }, '[scheduler] monthly rate scrape complete');
+    }).catch(err => {
+      schedulerLogger?.warn({ err: err.message }, '[scheduler] monthly rate scrape error');
+    });
+  }
+
   const now = new Date().toISOString();
   const sessions = db
     .prepare(
@@ -294,7 +311,7 @@ async function runScheduledSessions() {
       }
 
       const kwhNeeded = Math.max(0, ((socTarget - socStart) / 100) * MAEVING_BATTERY_KWH);
-      const fixedRateCents = getComedFixedTotalCents();
+      const fixedRateCents = getComedFixedTotalCents() + getMonthlyAdjustmentCents(db);
       const estimatedCostDollars = device.cost_free ? 0 : (fixedRateCents * kwhNeeded) / 100;
 
       db.prepare(`
@@ -379,7 +396,7 @@ async function runScheduledSessions() {
       }
 
       if (cutoffPriceAvgCents && stats.wh_delivered) {
-        const totalRateCents = cutoffPriceAvgCents + getComedBaseRateCents();
+        const totalRateCents = cutoffPriceAvgCents + getComedBaseRateCents() + getMonthlyAdjustmentCents(db);
         cutoffCostDollars = (totalRateCents * (stats.wh_delivered / 1000)) / 100;
       }
 
@@ -387,7 +404,7 @@ async function runScheduledSessions() {
       let cutoffHourlySavingsDollars = null;
 
       if (stats.wh_delivered && !session.cost_free) {
-        cutoffFixedRateDollars = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+        cutoffFixedRateDollars = ((getComedFixedTotalCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
         if (cutoffCostDollars != null) {
           cutoffHourlySavingsDollars = cutoffFixedRateDollars - cutoffCostDollars;
         }
@@ -398,8 +415,8 @@ async function runScheduledSessions() {
 
       if (session.cost_free) {
         if (stats.wh_delivered != null && cutoffPriceAvgCents != null) {
-          cutoffLfEquivalentCost = ((cutoffPriceAvgCents + getComedBaseRateCents()) * (stats.wh_delivered / 1000)) / 100;
-          cutoffLfEquivalentFixed = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+          cutoffLfEquivalentCost = ((cutoffPriceAvgCents + getComedBaseRateCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
+          cutoffLfEquivalentFixed = ((getComedFixedTotalCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
         }
         cutoffCostDollars = 0;
         cutoffPriceAvgCents = null;
@@ -513,9 +530,9 @@ async function runScheduledSessions() {
           } catch { /* ignore */ }
         }
         if (priceAvgCents) {
-          const totalRate = priceAvgCents + getComedBaseRateCents();
+          const totalRate = priceAvgCents + getComedBaseRateCents() + getMonthlyAdjustmentCents(db);
           actualCostDollars = (totalRate * (stats.wh_delivered / 1000)) / 100;
-          const fixedRate = getComedFixedTotalCents();
+          const fixedRate = getComedFixedTotalCents() + getMonthlyAdjustmentCents(db);
           fixedRateCostDollars = (fixedRate * (stats.wh_delivered / 1000)) / 100;
           hourlySavingsDollars = fixedRateCostDollars - actualCostDollars;
         }
@@ -528,8 +545,8 @@ async function runScheduledSessions() {
             } catch { /* ignore */ }
           }
           if (priceAvgCents) {
-            lfEquivalentCost = ((priceAvgCents + getComedBaseRateCents()) * (stats.wh_delivered / 1000)) / 100;
-            lfEquivalentFixed = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+            lfEquivalentCost = ((priceAvgCents + getComedBaseRateCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
+            lfEquivalentFixed = ((getComedFixedTotalCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
           }
         }
         actualCostDollars = 0;

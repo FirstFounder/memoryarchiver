@@ -19,6 +19,8 @@ import { MaevingPanel } from './components/maeving/MaevingPanel.jsx';
 import { BugoutPanel } from './components/bugout/BugoutPanel.jsx';
 import { RideCard } from './components/maeving/RideCard.jsx';
 import { LegsCard } from './components/maeving/LegsCard.jsx';
+import MonthlyRatePill from './components/maeving/MonthlyRatePill.jsx';
+import { getMonthlyRates } from './api/maeving.js';
 import { getAppConfig } from './api/appConfig.js';
 import { useAppConfigStore } from './store/appConfigStore.js';
 
@@ -158,6 +160,14 @@ export default function App() {
   const [maevingTotalKwh, setMaevingTotalKwh] = useState(null);
   const [maevingTotalSpent, setMaevingTotalSpent] = useState(null);
   const [maevingRebelTotal, setMaevingRebelTotal] = useState(null);
+  const [monthlyRates, setMonthlyRates] = useState(null);
+  useEffect(() => {
+    if (!isMaeving) return;
+    const load = () => getMonthlyRates().then(setMonthlyRates).catch(() => {});
+    load();
+    const id = setInterval(load, 5 * 60 * 1000);
+    return () => clearInterval(id);
+  }, [isMaeving]);
   useEffect(() => {
     if (!isMaeving) return;
     let active = true;
@@ -300,6 +310,9 @@ export default function App() {
         </h1>
         <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
           H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
+          {isMaeving && monthlyRates && (
+            <MonthlyRatePill rates={monthlyRates} onUpdated={setMonthlyRates} />
+          )}
           {isMaeving && maevingTotalMiles != null && maevingTotalMiles > 0 && (
             <span className="flex flex-col items-center gap-0">
               <span className="inline-flex items-center rounded bg-white px-1.5 py-0.5 text-base font-semibold" style={{ color: '#0047AB', fontSize: '1.2em' }}>

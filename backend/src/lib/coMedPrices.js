@@ -118,6 +118,16 @@ export function filterOvernightPrices(prices, windowStartHour, targetHour) {
 }
 // Retained for Tesla charge scheduler compatibility — these use undocumented
 // ComEd endpoints. Maeving scheduler uses fetchAndCacheDayAheadPrices() instead.
+export function getMonthlyAdjustmentCents(db) {
+  const now = new Date();
+  const rateMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const row = db.prepare(
+    'SELECT cfra_cents, pea_cents FROM maeving_monthly_rates WHERE rate_month = ?'
+  ).get(rateMonth);
+  if (!row) return 0;
+  return (row.cfra_cents ?? 0) + (row.pea_cents ?? 0);
+}
+
 export async function fetchDayAheadPrices() {
   return fetchPrices('https://hourlypricing.comed.com/api?type=daynexthouraverage&format=json');
 }

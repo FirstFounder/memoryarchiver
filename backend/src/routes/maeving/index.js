@@ -2,7 +2,8 @@ import config from '../../config.js';
 import db from '../../db/client.js';
 import exportDbRoutes from './exportDb.js';
 import { getAllDeviceStates, getDeviceState, invalidateActiveSessionCache, notifyRideStarted, notifyRideFinished, getActiveRideId } from '../../lib/maevingMqtt.js';
-import { fetchCurrentHourPrice } from '../../lib/coMedPrices.js';
+import { fetchCurrentHourPrice, getMonthlyAdjustmentCents } from '../../lib/coMedPrices.js';
+import { scrapeMonthlyRates, getCurrentMonthRates } from '../../lib/maevingRateScraper.js';
 import { setPlugState } from '../../lib/maevingControl.js';
 import {
   computeOvernightStart,
@@ -961,7 +962,7 @@ export default async function maevingRoutes(fastify) {
     }
 
     if (priceAvgCents && stats.wh_delivered) {
-      const totalRateCents = priceAvgCents + getComedBaseRateCents();
+      const totalRateCents = priceAvgCents + getComedBaseRateCents() + getMonthlyAdjustmentCents(db);
       actualCostDollars = (totalRateCents * (stats.wh_delivered / 1000)) / 100;
     }
 
@@ -969,7 +970,7 @@ export default async function maevingRoutes(fastify) {
     let hourlySavingsDollars = null;
 
     if (stats.wh_delivered && !device.cost_free) {
-      fixedRateCostDollars = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+      fixedRateCostDollars = ((getComedFixedTotalCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
       if (actualCostDollars != null) {
         hourlySavingsDollars = fixedRateCostDollars - actualCostDollars;
       }
@@ -980,8 +981,8 @@ export default async function maevingRoutes(fastify) {
 
     if (device.cost_free) {
       if (stats.wh_delivered != null && priceAvgCents != null) {
-        lfEquivalentCost = ((priceAvgCents + getComedBaseRateCents()) * (stats.wh_delivered / 1000)) / 100;
-        lfEquivalentFixed = (getComedFixedTotalCents() * (stats.wh_delivered / 1000)) / 100;
+        lfEquivalentCost = ((priceAvgCents + getComedBaseRateCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
+        lfEquivalentFixed = ((getComedFixedTotalCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
       }
       actualCostDollars = 0;
       priceAvgCents = null;
@@ -1277,5 +1278,46 @@ export default async function maevingRoutes(fastify) {
     if (!session) return reply.code(404).send({ error: 'not found' });
     if (session.soc_target_pct !== 100) return reply.send({ error: 'not_a_full_charge' });
     return reply.send(analyzeTaper(session.id));
+  });
+
+  // GET /api/maeving/monthly-rates
+  fastify.get('/api/maeving/monthly-rates', async (_req, reply) => {
+    const row = getCurrentMonthRates(db);
+    return reply.send(row ?? {
+      rate_month: null,
+      cfra_cents: null,
+      cfra_partial: false,
+      cfra_status: 'pending',
+      pea_cents: null,
+      pea_status: 'pending'
+    });
+  });
+
+  // POST /api/maeving/monthly-rates/scrape
+  fastify.post('/api/maeving/monthly-rates/scrape', async (_req, reply) => {
+    const results = await scrapeMonthlyRates(db, fastify.log);
+    const row = getCurrentMonthRates(db);
+    return reply.send({ results, row });
+  });
+
+  // POST /api/maeving/monthly-rates/manual
+  fastify.post('/api/maeving/monthly-rates/manual', async (req, reply) => {
+    const { cfra_cents, pea_cents } = req.body;
+    const now = new Date();
+    const rateMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    db.prepare(`
+      INSERT INTO maeving_monthly_rates (rate_month, cfra_cents, cfra_partial, pea_cents, cfra_status, pea_status, cfra_fetched_at, pea_fetched_at, updated_at)
+      VALUES (?, ?, 0, ?, 'ok', 'ok', datetime('now'), datetime('now'), datetime('now'))
+      ON CONFLICT(rate_month) DO UPDATE SET
+        cfra_cents = excluded.cfra_cents,
+        cfra_partial = 0,
+        pea_cents = excluded.pea_cents,
+        cfra_status = 'ok',
+        pea_status = 'ok',
+        cfra_fetched_at = datetime('now'),
+        pea_fetched_at = datetime('now'),
+        updated_at = datetime('now')
+    `).run(rateMonth, cfra_cents ?? null, pea_cents ?? null);
+    return reply.send(getCurrentMonthRates(db));
   });
 }

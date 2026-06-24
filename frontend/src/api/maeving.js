@@ -165,3 +165,16 @@ export async function deleteSession(id) {
 export async function getSessionCurve(sessionId) {
   return apiFetch(`/api/maeving/sessions/${sessionId}/curve`);
 }
+
+export const getMonthlyRates = () =>
+  fetch('/api/maeving/monthly-rates').then(r => r.json());
+
+export const scrapeMonthlyRates = () =>
+  fetch('/api/maeving/monthly-rates/scrape', { method: 'POST' }).then(r => r.json());
+
+export const saveManualRates = (cfra_cents, pea_cents) =>
+  fetch('/api/maeving/monthly-rates/manual', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ cfra_cents, pea_cents })
+  }).then(r => r.json());
