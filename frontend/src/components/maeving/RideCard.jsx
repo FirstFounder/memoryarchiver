@@ -109,8 +109,8 @@ export function RideCard() {
     getConfig().then((cfg) => {
       setStartSoc(cfg.prev_max_soc_pct ?? 50);
       configRef.current = cfg;
-    }).catch(() => {});
-    syncRide();
+      syncRide();
+    }).catch(() => { syncRide(); });
     const poll = setInterval(syncRide, 30_000);
     return () => {
       clearInterval(poll);
