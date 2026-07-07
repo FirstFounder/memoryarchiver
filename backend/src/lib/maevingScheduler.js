@@ -3,7 +3,6 @@ import { getPlugStatus, setPlugState } from './maevingControl.js';
 import { fetchCurrentHourPrice, getMonthlyAdjustmentCents } from './coMedPrices.js';
 import { sessionReadingsStats, invalidateActiveSessionCache, CHARGE_COMPLETE_WATTS, CHARGE_COMPLETE_CONSECUTIVE } from './maevingMqtt.js';
 import { recordSessionComplete, getConfig, computeChargeCurve } from './maevingCalibration.js';
-import { scrapeMonthlyRates } from './maevingRateScraper.js';
 
 export const MAEVING_CHARGE_RATE_KW = 1.2;
 const MAEVING_BATTERY_KWH = 2.88;
@@ -20,7 +19,6 @@ const probeActiveSince = {};
 
 let pollingInterval = null;
 let schedulerLogger = null;
-let lastRateScrapeMonth = null; // 'YYYY-MM' of last successful scrape attempt
 
 // ---------------------------------------------------------------------------
 // ComEd "Residential - Hourly Multiple" (Rate BESH) — static per-kWh charges
@@ -181,21 +179,6 @@ export function getFallbackScheduledStartAt() {
 }
 
 async function runScheduledSessions() {
-  // Monthly rate scrape: run on 1st of month between midnight and 00:05 CT
-  const ctNow = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/Chicago' }));
-  const ctDate = ctNow.getDate();
-  const ctHour = ctNow.getHours();
-  const ctMinute = ctNow.getMinutes();
-  const currentRateMonth = `${ctNow.getFullYear()}-${String(ctNow.getMonth() + 1).padStart(2, '0')}`;
-  if (ctDate === 1 && ctHour === 0 && ctMinute < 5 && lastRateScrapeMonth !== currentRateMonth) {
-    lastRateScrapeMonth = currentRateMonth;
-    scrapeMonthlyRates(db, schedulerLogger).then(results => {
-      schedulerLogger?.info({ results, rateMonth: currentRateMonth }, '[scheduler] monthly rate scrape complete');
-    }).catch(err => {
-      schedulerLogger?.warn({ err: err.message }, '[scheduler] monthly rate scrape error');
-    });
-  }
-
   const now = new Date().toISOString();
   const sessions = db
     .prepare(

@@ -1,30 +1,14 @@
 import React, { useState } from 'react';
-import { scrapeMonthlyRates, saveManualRates } from '../../api/maeving';
+import { saveManualRates } from '../../api/maeving';
 
 export default function ManualRatesPanel({ rates, onClose, onSaved }) {
   const [cfra, setCfra] = useState(rates.cfra_cents != null ? String(rates.cfra_cents) : '');
   const [pea, setPea] = useState(rates.pea_cents != null ? String(rates.pea_cents) : '');
-  const [scraping, setScraping] = useState(false);
-  const [scrapeError, setScrapeError] = useState(null);
   const [saving, setSaving] = useState(false);
 
   const monthYear = rates.rate_month
     ? new Date(rates.rate_month + '-01').toLocaleString('en-US', { month: 'long', year: 'numeric' })
     : 'Current Month';
-
-  async function handleScrape() {
-    setScraping(true);
-    setScrapeError(null);
-    try {
-      const result = await scrapeMonthlyRates();
-      if (result.row) onSaved(result.row);
-      else setScrapeError('Scrape failed — enter manually or try again later.');
-    } catch {
-      setScrapeError('Scrape failed — enter manually or try again later.');
-    } finally {
-      setScraping(false);
-    }
-  }
 
   async function handleSave() {
     setSaving(true);
@@ -49,7 +33,7 @@ export default function ManualRatesPanel({ rates, onClose, onSaved }) {
         <button onClick={onClose} className="text-slate-400 hover:text-slate-200 text-lg leading-none">×</button>
       </div>
       <p className="text-slate-400 text-xs mb-3">
-        Auto-scrape failed. Enter values from ComEd/ICC filings.
+        Enter values from the current ComEd/ICC filings. Leave a field blank to exclude it.
       </p>
       <div className="space-y-2 mb-3">
         <div>
@@ -79,21 +63,19 @@ export default function ManualRatesPanel({ rates, onClose, onSaved }) {
           />
         </div>
       </div>
-      {scrapeError && (
-        <p className="text-amber-400 text-xs mb-2">{scrapeError}</p>
-      )}
-      <div className="flex gap-2">
+      <div className="flex justify-end gap-2">
         <button
-          onClick={handleScrape}
-          disabled={scraping}
-          className="flex-1 bg-slate-700 hover:bg-slate-600 disabled:opacity-50 text-slate-200 text-xs rounded px-2 py-1.5"
+          type="button"
+          onClick={onClose}
+          className="bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs rounded px-3 py-1.5"
         >
-          {scraping ? 'Scraping…' : 'Try Auto-Scrape'}
+          Cancel
         </button>
         <button
+          type="button"
           onClick={handleSave}
           disabled={saving}
-          className="flex-1 bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs rounded px-2 py-1.5"
+          className="bg-blue-700 hover:bg-blue-600 disabled:opacity-50 text-white text-xs rounded px-3 py-1.5"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>

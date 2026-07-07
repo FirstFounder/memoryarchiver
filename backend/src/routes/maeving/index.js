@@ -3,7 +3,7 @@ import db from '../../db/client.js';
 import exportDbRoutes from './exportDb.js';
 import { getAllDeviceStates, getDeviceState, invalidateActiveSessionCache, notifyRideStarted, notifyRideFinished, getActiveRideId } from '../../lib/maevingMqtt.js';
 import { fetchCurrentHourPrice, getMonthlyAdjustmentCents } from '../../lib/coMedPrices.js';
-import { scrapeMonthlyRates, getCurrentMonthRates } from '../../lib/maevingRateScraper.js';
+import { getCurrentMonthRates } from '../../lib/maevingMonthlyRates.js';
 import { setPlugState } from '../../lib/maevingControl.js';
 import {
   computeOvernightStart,
@@ -1291,13 +1291,6 @@ export default async function maevingRoutes(fastify) {
       pea_cents: null,
       pea_status: 'pending'
     });
-  });
-
-  // POST /api/maeving/monthly-rates/scrape
-  fastify.post('/api/maeving/monthly-rates/scrape', async (_req, reply) => {
-    const results = await scrapeMonthlyRates(db, fastify.log);
-    const row = getCurrentMonthRates(db);
-    return reply.send({ results, row });
   });
 
   // POST /api/maeving/monthly-rates/manual

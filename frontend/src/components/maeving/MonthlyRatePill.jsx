@@ -20,37 +20,21 @@ export default function MonthlyRatePill({ rates, onUpdated }) {
 
   return (
     <>
-      <div
-        className="bg-white rounded px-1.5 py-0.5 text-xs font-mono flex gap-1.5 items-center"
+      <button
+        type="button"
+        onClick={() => setShowManual(true)}
+        className="bg-white rounded px-1.5 py-0.5 text-xs font-mono flex gap-1.5 items-center hover:opacity-80 focus:outline-none focus:ring-2 focus:ring-blue-300"
         style={{ color: '#0047AB' }}
+        title="Update CFRA/PEA monthly rates"
       >
         <span>
           {label} CFRA:{' '}
-          {rates.cfra_status === 'fail' ? (
-            <button
-              onClick={() => setShowManual(true)}
-              className="underline hover:opacity-70"
-            >
-              fail ↗
-            </button>
-          ) : (
-            formatCents(rates.cfra_cents, rates.cfra_partial === 1)
-          )}
+          {formatCents(rates.cfra_cents, rates.cfra_partial === 1)}
         </span>
         <span>
-          PEA:{' '}
-          {rates.pea_status === 'fail' ? (
-            <button
-              onClick={() => setShowManual(true)}
-              className="underline hover:opacity-70"
-            >
-              fail ↗
-            </button>
-          ) : (
-            formatCents(rates.pea_cents)
-          )}
+          PEA: {formatCents(rates.pea_cents)}
         </span>
-      </div>
+      </button>
       {showManual && (
         <ManualRatesPanel
           rates={rates}
