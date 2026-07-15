@@ -164,6 +164,16 @@ export default async function maevingRoutes(fastify) {
       FROM maeving_rides r
       JOIN maeving_trips t ON t.id = r.trip_id AND t.hidden = 0
       WHERE r.finished_at IS NOT NULL
+        AND r.id NOT IN (
+          SELECT leg_1_ride_id FROM maeving_sessions WHERE leg_1_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_2_ride_id FROM maeving_sessions WHERE leg_2_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_3_ride_id FROM maeving_sessions WHERE leg_3_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_4_ride_id FROM maeving_sessions WHERE leg_4_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_5_ride_id FROM maeving_sessions WHERE leg_5_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_6_ride_id FROM maeving_sessions WHERE leg_6_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_7_ride_id FROM maeving_sessions WHERE leg_7_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_8_ride_id FROM maeving_sessions WHERE leg_8_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+        )
       ORDER BY r.started_at ASC
     `).all();
     return reply.send(rides);
