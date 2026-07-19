@@ -551,6 +551,7 @@ export default async function maevingRoutes(fastify) {
       trip_id,
       trip_duration_min,
       charge_mode,
+      cost_free,
       departure_time,
       leg_1_trip_id,
       leg_1_duration_min,
@@ -657,7 +658,7 @@ export default async function maevingRoutes(fastify) {
     const result = db.prepare(`
       INSERT INTO maeving_sessions
         (device_id, started_at, soc_start_pct, soc_target_pct, status,
-         trip_id, trip_duration_min, charge_mode, departure_time,
+         trip_id, trip_duration_min, charge_mode, cost_free, departure_time,
          leg_1_trip_id, leg_1_duration_min,
          leg_2_trip_id, leg_2_duration_min,
          leg_3_trip_id, leg_3_duration_min,
@@ -684,7 +685,7 @@ export default async function maevingRoutes(fastify) {
          leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id,
          leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id,
          total_miles)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       device_id,
       now,
@@ -694,6 +695,7 @@ export default async function maevingRoutes(fastify) {
       trip_id ?? null,
       trip_duration_min ?? null,
       mode,
+      cost_free ?? null,
       departure_time ?? null,
       leg_1_trip_id ?? null,
       leg_1_duration_min ?? null,
@@ -923,6 +925,7 @@ export default async function maevingRoutes(fastify) {
     if (!session) return reply.code(404).send({ error: 'not found' });
 
     const device = db.prepare('SELECT * FROM maeving_devices WHERE id = ?').get(session.device_id);
+    const effectiveCostFree = session.cost_free ?? device.cost_free;
 
     if (session.status === 'scheduled') {
       try { await setPlugState(device.ip, false); } catch { /* ignore */ }
@@ -979,7 +982,7 @@ export default async function maevingRoutes(fastify) {
     let fixedRateCostDollars = null;
     let hourlySavingsDollars = null;
 
-    if (stats.wh_delivered && !device.cost_free) {
+    if (stats.wh_delivered && !effectiveCostFree) {
       fixedRateCostDollars = ((getComedFixedTotalCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
       if (actualCostDollars != null) {
         hourlySavingsDollars = fixedRateCostDollars - actualCostDollars;
@@ -989,7 +992,7 @@ export default async function maevingRoutes(fastify) {
     let lfEquivalentCost = null;
     let lfEquivalentFixed = null;
 
-    if (device.cost_free) {
+    if (effectiveCostFree) {
       if (stats.wh_delivered != null && priceAvgCents != null) {
         lfEquivalentCost = ((priceAvgCents + getComedBaseRateCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
         lfEquivalentFixed = ((getComedFixedTotalCents() + getMonthlyAdjustmentCents(db)) * (stats.wh_delivered / 1000)) / 100;
@@ -1039,7 +1042,7 @@ export default async function maevingRoutes(fastify) {
       session.id,
     );
 
-    const savingsDelta = device.cost_free
+    const savingsDelta = effectiveCostFree
       ? (lfEquivalentCost ?? 0)
       : Math.max(0, (fixedRateCostDollars ?? 0) - (actualCostDollars ?? 0));
     db.prepare(`
@@ -1125,9 +1128,9 @@ export default async function maevingRoutes(fastify) {
     const history = JSON.parse(cfg.capacity_history_json || '[]');
     const totals = db.prepare(`
       SELECT
-        COALESCE(SUM(CASE WHEN d.cost_free = 0 AND s.wh_delivered IS NOT NULL
+        COALESCE(SUM(CASE WHEN COALESCE(s.cost_free, d.cost_free) = 0 AND s.wh_delivered IS NOT NULL
                           THEN s.wh_delivered ELSE 0 END), 0)       AS total_wh_added,
-        COALESCE(SUM(CASE WHEN d.cost_free = 0 AND s.wh_delivered IS NOT NULL
+        COALESCE(SUM(CASE WHEN COALESCE(s.cost_free, d.cost_free) = 0 AND s.wh_delivered IS NOT NULL
                           THEN s.actual_cost_dollars ELSE 0 END), 0) AS total_money_spent,
         SUM(s.rebel_cost_total)                                       AS total_rebel_cost
       FROM maeving_sessions s
@@ -1237,7 +1240,7 @@ export default async function maevingRoutes(fastify) {
     const savingsRow = db.prepare(`
       SELECT COALESCE(SUM(
         CASE
-          WHEN d.cost_free = 1 THEN COALESCE(s.lf_equivalent_cost_dollars, 0)
+          WHEN COALESCE(s.cost_free, d.cost_free) = 1 THEN COALESCE(s.lf_equivalent_cost_dollars, 0)
           ELSE MAX(0, COALESCE(s.fixed_rate_cost_dollars, 0) - COALESCE(s.actual_cost_dollars, 0))
         END
       ), 0) AS total_savings

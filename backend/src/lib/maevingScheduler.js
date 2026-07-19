@@ -399,7 +399,7 @@ async function runScheduledSessions() {
 
   // --- Active session auto-cutoff ---
   const activeSessions = db.prepare(`
-    SELECT s.*, d.ip, d.site_key, d.cost_free
+    SELECT s.*, d.ip, d.site_key, COALESCE(s.cost_free, d.cost_free) AS cost_free
     FROM maeving_sessions s
     JOIN maeving_devices d ON d.id = s.device_id
     WHERE s.status = 'active' AND s.soc_target_pct IS NOT NULL AND s.soc_target_pct < 100
@@ -522,7 +522,7 @@ async function runScheduledSessions() {
 
   // --- 100% session completion detection ---
   const fullTargetSessions = db.prepare(`
-    SELECT s.*, d.ip, d.site_key, d.cost_free
+    SELECT s.*, d.ip, d.site_key, COALESCE(s.cost_free, d.cost_free) AS cost_free
     FROM maeving_sessions s
     JOIN maeving_devices d ON d.id = s.device_id
     WHERE s.status = 'active' AND s.soc_target_pct = 100

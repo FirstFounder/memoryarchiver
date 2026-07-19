@@ -113,7 +113,7 @@ function formatTimeRange(startedAt, finishedAt) {
 
 
 function getSessionRowClass(session, device) {
-  if (device?.cost_free) return 'bg-orange-950/30 border-orange-800/40';
+  if (device?.cost_free || session?.cost_free) return 'bg-orange-950/30 border-orange-800/40';
   const legCount = [1, 2, 3, 4, 5, 6, 7, 8].filter((n) => session[`leg_${n}_trip_id`] != null).length;
   if (legCount === 1) return 'bg-green-950/30 border-green-800/40';
   return 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]';
@@ -159,6 +159,7 @@ export function MaevingPanel() {
   const [expandedLegKey, setExpandedLegKey] = useState(null);
   const [sessionTelemetryCache, setSessionTelemetryCache] = useState({});
   const [telemetryLoading, setTelemetryLoading] = useState(false);
+  const [condoSessionType, setCondoSessionType] = useState('hourly'); // 'free' | 'hourly'
 
   const detailsIntervalRef = useRef(null);
   const taperIntervalRef = useRef(null);
@@ -342,6 +343,7 @@ export function MaevingPanel() {
         soc_start_pct: socStart,
         soc_target_pct: socTarget,
         charge_mode: 'now',
+        ...(selectedDevice?.site_key === 'AB' ? { cost_free: condoSessionType === 'free' ? 1 : 0 } : {}),
         ...buildLegData(),
       });
       setActiveSessions((prev) => ({ ...prev, [selectedId]: session }));
@@ -363,6 +365,7 @@ export function MaevingPanel() {
         soc_start_pct: socStart,
         soc_target_pct: socTarget,
         charge_mode: 'scheduled',
+        ...(selectedDevice?.site_key === 'AB' ? { cost_free: condoSessionType === 'free' ? 1 : 0 } : {}),
         ...buildLegData(),
       });
 
@@ -881,6 +884,25 @@ export function MaevingPanel() {
                 </div>
               )}
 
+              {selectedDevice?.site_key === 'AB' && (
+                <div className="flex gap-2">
+                  {['hourly', 'free'].map((type) => (
+                    <button
+                      key={type}
+                      type="button"
+                      onClick={() => setCondoSessionType(type)}
+                      className={`flex-1 rounded-2xl border px-4 py-2 text-sm font-semibold transition-colors ${
+                        condoSessionType === type
+                          ? 'border-[color:var(--color-accent)] bg-[color:var(--color-accent)]/20 text-slate-100'
+                          : 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] text-slate-400 hover:border-slate-500'
+                      }`}
+                    >
+                      {type === 'hourly' ? 'Hourly' : 'Free'}
+                    </button>
+                  ))}
+                </div>
+              )}
+
               {error && (
                 <div className="rounded-2xl border border-red-800/60 bg-red-950/40 px-4 py-3 text-sm text-red-300">
                   {error}
@@ -888,26 +910,33 @@ export function MaevingPanel() {
               )}
 
               {/* Charge mode buttons */}
-              <div className={selectedDevice?.site_key === 'LF' ? '' : 'grid grid-cols-2 gap-3'}>
-                <button
-                  type="button"
-                  onClick={handleChargeNow}
-                  disabled={starting || schedulingOvernight || isOverLimit}
-                  className={`min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60${selectedDevice?.site_key === 'LF' ? ' w-full' : ''}`}
-                >
-                  {starting ? 'Logging…' : 'Charge Now'}
-                </button>
-                {selectedDevice?.site_key !== 'LF' && (
-                  <button
-                    type="button"
-                    onClick={handleScheduleOvernight}
-                    disabled={starting || schedulingOvernight || isOverLimit}
-                    className="min-h-14 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
-                  >
-                    {schedulingOvernight ? 'Scheduling…' : 'Charge Overnight'}
-                  </button>
-                )}
-              </div>
+              {(() => {
+                const isLF = selectedDevice?.site_key === 'LF';
+                const isCondoFree = selectedDevice?.site_key === 'AB' && condoSessionType === 'free';
+                const showOvernight = !isLF && !isCondoFree;
+                return (
+                  <div className={showOvernight ? 'grid grid-cols-2 gap-3' : ''}>
+                    <button
+                      type="button"
+                      onClick={handleChargeNow}
+                      disabled={starting || schedulingOvernight || isOverLimit}
+                      className={`min-h-14 rounded-2xl bg-[color:var(--color-accent)] px-6 text-base font-semibold text-white transition-colors hover:bg-[color:var(--color-accent-hover)] disabled:opacity-60${!showOvernight ? ' w-full' : ''}`}
+                    >
+                      {starting ? 'Logging…' : 'Charge Now'}
+                    </button>
+                    {showOvernight && (
+                      <button
+                        type="button"
+                        onClick={handleScheduleOvernight}
+                        disabled={starting || schedulingOvernight || isOverLimit}
+                        className="min-h-14 rounded-2xl border border-[color:var(--color-border)] bg-[color:var(--color-surface-0)] px-6 text-base font-semibold text-slate-300 transition-colors hover:border-slate-500 disabled:opacity-60"
+                      >
+                        {schedulingOvernight ? 'Scheduling…' : 'Charge Overnight'}
+                      </button>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           )}
         </section>
@@ -994,7 +1023,7 @@ export function MaevingPanel() {
                   <span className="text-slate-500">
                     {formatChargeTime(session.started_at, session.ended_at)}
                   </span>
-                  {device?.cost_free ? (
+                  {(device?.cost_free || session?.cost_free) ? (
                     session.lf_equivalent_cost_dollars != null ? (
                       <span className="flex flex-col items-start gap-0.5 text-xs leading-tight">
                         <span className="text-green-400">
@@ -1109,7 +1138,10 @@ export function MaevingPanel() {
 
         if (recentTripLegs.length === 0 && recentPendingRides.length === 0) return null;
 
-        const hasLFRow = recentTripLegs.some((r) => devices.find((d) => d.id === r.session.device_id)?.cost_free);
+        const hasLFRow = recentTripLegs.some((r) => {
+          const d = devices.find((dev) => dev.id === r.session.device_id);
+          return !!(d?.cost_free || r.session?.cost_free);
+        });
 
         return (
           <section className="rounded-[2rem] border border-[color:var(--color-border)] bg-[color:var(--color-surface-1)] p-5 sm:p-6">
@@ -1390,7 +1422,7 @@ export function MaevingPanel() {
               {recentTripLegs.map((row) => {
                 const { session, legNum, totalLegs, isMultiLeg, trip, durationMin, legStartedAt, isLastLeg } = row;
                 const device = devices.find((d) => d.id === session.device_id);
-                const isLF = !!device?.cost_free;
+                const isLF = !!(device?.cost_free || session?.cost_free);
                 const cellColor = isLF ? 'text-orange-300' : 'text-slate-300';
                 const dateCellColor = isLF ? 'text-orange-300' : 'text-slate-500';
                 const timeCellColor = isLF ? 'text-orange-300' : 'text-slate-500';
@@ -1436,7 +1468,7 @@ export function MaevingPanel() {
                     </span>
                     <span className="flex items-start justify-end text-right">
                       {isLastLeg ? (
-                        device?.cost_free ? (
+                        (device?.cost_free || session?.cost_free) ? (
                           session.lf_equivalent_cost_dollars != null ? (
                             <span className="flex flex-col items-end gap-0.5 text-xs leading-tight">
                               <span className="text-green-400">
