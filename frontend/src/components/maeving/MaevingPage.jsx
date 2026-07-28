@@ -583,7 +583,7 @@ function ExpandedSessionCurve({ session, curveCache, onFetch }) {
 
 export default function MaevingPage() {
   // Sidebar
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(() => window.innerWidth < 640);
   const [activeSection, setActiveSection] = useState('ride');
 
   // Pricing

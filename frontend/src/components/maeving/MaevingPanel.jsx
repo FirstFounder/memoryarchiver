@@ -988,7 +988,10 @@ export function MaevingPanel() {
                 );
               }
 
-              const calSoc = calibrateSocMap[session.id] ?? (session.soc_target_pct ?? 60);
+              const calSoc = calibrateSocMap[session.id] ??
+                (session.estimated_soc_at_stop != null
+                  ? Math.round(session.estimated_soc_at_stop)
+                  : (session.soc_target_pct ?? 60));
 
               return (
                 <div
