@@ -114,7 +114,7 @@ function formatTimeRange(startedAt, finishedAt) {
 
 function getSessionRowClass(session, device) {
   if (device?.cost_free || session?.cost_free) return 'bg-orange-950/30 border-orange-800/40';
-  const legCount = [1, 2, 3, 4, 5, 6, 7, 8].filter((n) => session[`leg_${n}_trip_id`] != null).length;
+  const legCount = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].filter((n) => session[`leg_${n}_trip_id`] != null).length;
   if (legCount === 1) return 'bg-green-950/30 border-green-800/40';
   return 'border-[color:var(--color-border)] bg-[color:var(--color-surface-0)]';
 }
@@ -291,7 +291,7 @@ export function MaevingPanel() {
   const liveApower = liveState?.apower ?? 0;
 
   const checkedCount = checkedRideIds.size;
-  const isOverLimit = checkedCount > 8;
+  const isOverLimit = checkedCount > 16;
 
   function resetPlugInForm() {
     setError('');
@@ -320,7 +320,7 @@ export function MaevingPanel() {
     let slotIdx = 0;
 
     for (const ride of checkedRides) {
-      if (slotIdx >= 8) break;
+      if (slotIdx >= 16) break;
       slotIdx++;
       legData[`leg_${slotIdx}_trip_id`] = ride.trip_id;
       legData[`leg_${slotIdx}_ride_id`] = ride.id;
@@ -548,7 +548,7 @@ export function MaevingPanel() {
   function isRideActivelyCharging(rideId) {
     for (const session of Object.values(activeSessions)) {
       if (session.status !== 'active') continue;
-      for (let n = 1; n <= 8; n++) {
+      for (let n = 1; n <= 16; n++) {
         if (session[`leg_${n}_ride_id`] === rideId) return true;
       }
     }
@@ -1119,7 +1119,7 @@ export function MaevingPanel() {
         const tripLegRows = [];
         for (const session of recentSessions) {
           if (session.leg_1_trip_id == null) continue;
-          const legNums = [1, 2, 3, 4, 5, 6, 7, 8].filter((n) => session[`leg_${n}_trip_id`] != null);
+          const legNums = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16].filter((n) => session[`leg_${n}_trip_id`] != null);
           const isMultiLeg = legNums.length > 1;
           for (const n of legNums) {
             const tripId = session[`leg_${n}_trip_id`];

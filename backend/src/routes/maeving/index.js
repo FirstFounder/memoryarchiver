@@ -173,6 +173,14 @@ export default async function maevingRoutes(fastify) {
           UNION ALL SELECT leg_6_ride_id FROM maeving_sessions WHERE leg_6_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
           UNION ALL SELECT leg_7_ride_id FROM maeving_sessions WHERE leg_7_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
           UNION ALL SELECT leg_8_ride_id FROM maeving_sessions WHERE leg_8_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_9_ride_id FROM maeving_sessions WHERE leg_9_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_10_ride_id FROM maeving_sessions WHERE leg_10_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_11_ride_id FROM maeving_sessions WHERE leg_11_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_12_ride_id FROM maeving_sessions WHERE leg_12_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_13_ride_id FROM maeving_sessions WHERE leg_13_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_14_ride_id FROM maeving_sessions WHERE leg_14_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_15_ride_id FROM maeving_sessions WHERE leg_15_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
+          UNION ALL SELECT leg_16_ride_id FROM maeving_sessions WHERE leg_16_ride_id IS NOT NULL AND status NOT IN ('active','scheduled')
         )
       ORDER BY r.started_at ASC
     `).all();
@@ -569,6 +577,22 @@ export default async function maevingRoutes(fastify) {
       leg_7_duration_min,
       leg_8_trip_id,
       leg_8_duration_min,
+      leg_9_trip_id,
+      leg_9_duration_min,
+      leg_10_trip_id,
+      leg_10_duration_min,
+      leg_11_trip_id,
+      leg_11_duration_min,
+      leg_12_trip_id,
+      leg_12_duration_min,
+      leg_13_trip_id,
+      leg_13_duration_min,
+      leg_14_trip_id,
+      leg_14_duration_min,
+      leg_15_trip_id,
+      leg_15_duration_min,
+      leg_16_trip_id,
+      leg_16_duration_min,
       leg_1_ride_id,
       leg_2_ride_id,
       leg_3_ride_id,
@@ -577,6 +601,30 @@ export default async function maevingRoutes(fastify) {
       leg_6_ride_id,
       leg_7_ride_id,
       leg_8_ride_id,
+      leg_9_ride_id,
+      leg_10_ride_id,
+      leg_11_ride_id,
+      leg_12_ride_id,
+      leg_13_ride_id,
+      leg_14_ride_id,
+      leg_15_ride_id,
+      leg_16_ride_id,
+      leg_1_started_at: leg_1_started_at_body,
+      leg_2_started_at: leg_2_started_at_body,
+      leg_3_started_at: leg_3_started_at_body,
+      leg_4_started_at: leg_4_started_at_body,
+      leg_5_started_at: leg_5_started_at_body,
+      leg_6_started_at: leg_6_started_at_body,
+      leg_7_started_at: leg_7_started_at_body,
+      leg_8_started_at: leg_8_started_at_body,
+      leg_9_started_at: leg_9_started_at_body,
+      leg_10_started_at: leg_10_started_at_body,
+      leg_11_started_at: leg_11_started_at_body,
+      leg_12_started_at: leg_12_started_at_body,
+      leg_13_started_at: leg_13_started_at_body,
+      leg_14_started_at: leg_14_started_at_body,
+      leg_15_started_at: leg_15_started_at_body,
+      leg_16_started_at: leg_16_started_at_body,
     } = req.body ?? {};
     if (!device_id) return reply.code(400).send({ error: 'device_id required' });
 
@@ -590,7 +638,8 @@ export default async function maevingRoutes(fastify) {
     const now = started_at ?? new Date().toISOString();
 
     // Fetch SOC/wh_per_mile from ride rows for any leg that came from a prestaged ride
-    const rideIds = [leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id, leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id];
+    const rideIds = [leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id, leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id,
+                    leg_9_ride_id, leg_10_ride_id, leg_11_ride_id, leg_12_ride_id, leg_13_ride_id, leg_14_ride_id, leg_15_ride_id, leg_16_ride_id];
     const rideDataByLeg = rideIds.map((rideId) => {
       if (!rideId) return null;
       return db.prepare('SELECT start_soc_pct, end_soc_pct, wh_per_mile, started_at FROM maeving_rides WHERE id = ?').get(rideId) ?? null;
@@ -602,12 +651,16 @@ export default async function maevingRoutes(fastify) {
     let hasRebelCost = false;
 
     const legTripIds = [leg_1_trip_id, leg_2_trip_id, leg_3_trip_id, leg_4_trip_id,
-                        leg_5_trip_id, leg_6_trip_id, leg_7_trip_id, leg_8_trip_id];
+                        leg_5_trip_id, leg_6_trip_id, leg_7_trip_id, leg_8_trip_id,
+                        leg_9_trip_id, leg_10_trip_id, leg_11_trip_id, leg_12_trip_id,
+                        leg_13_trip_id, leg_14_trip_id, leg_15_trip_id, leg_16_trip_id];
     const legRideIds  = [leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id,
-                         leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id];
+                         leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id,
+                         leg_9_ride_id, leg_10_ride_id, leg_11_ride_id, leg_12_ride_id,
+                         leg_13_ride_id, leg_14_ride_id, leg_15_ride_id, leg_16_ride_id];
 
     let sessionTotalMiles = 0;
-    for (let n = 1; n <= 8; n++) {
+    for (let n = 1; n <= 16; n++) {
       const rideId = legRideIds[n - 1];
       const tripId = legTripIds[n - 1];
       if (rideId) {
@@ -642,12 +695,15 @@ export default async function maevingRoutes(fastify) {
     // Recompute global avg_wh_per_mile from all historical sessions + new rides
     const historicalRows = db.prepare(`
       SELECT leg_1_wh_per_mile, leg_2_wh_per_mile, leg_3_wh_per_mile, leg_4_wh_per_mile,
-             leg_5_wh_per_mile, leg_6_wh_per_mile, leg_7_wh_per_mile, leg_8_wh_per_mile
+             leg_5_wh_per_mile, leg_6_wh_per_mile, leg_7_wh_per_mile, leg_8_wh_per_mile,
+             leg_9_wh_per_mile, leg_10_wh_per_mile, leg_11_wh_per_mile, leg_12_wh_per_mile,
+             leg_13_wh_per_mile, leg_14_wh_per_mile, leg_15_wh_per_mile, leg_16_wh_per_mile
       FROM maeving_sessions
     `).all();
     const allWhValues = [...newWhPerMileValues];
     for (const row of historicalRows) {
-      for (const col of ['leg_1_wh_per_mile', 'leg_2_wh_per_mile', 'leg_3_wh_per_mile', 'leg_4_wh_per_mile', 'leg_5_wh_per_mile', 'leg_6_wh_per_mile', 'leg_7_wh_per_mile', 'leg_8_wh_per_mile']) {
+      for (const col of ['leg_1_wh_per_mile', 'leg_2_wh_per_mile', 'leg_3_wh_per_mile', 'leg_4_wh_per_mile', 'leg_5_wh_per_mile', 'leg_6_wh_per_mile', 'leg_7_wh_per_mile', 'leg_8_wh_per_mile',
+                         'leg_9_wh_per_mile', 'leg_10_wh_per_mile', 'leg_11_wh_per_mile', 'leg_12_wh_per_mile', 'leg_13_wh_per_mile', 'leg_14_wh_per_mile', 'leg_15_wh_per_mile', 'leg_16_wh_per_mile']) {
         if (row[col] != null) allWhValues.push(row[col]);
       }
     }
@@ -667,11 +723,23 @@ export default async function maevingRoutes(fastify) {
          leg_6_trip_id, leg_6_duration_min,
          leg_7_trip_id, leg_7_duration_min,
          leg_8_trip_id, leg_8_duration_min,
+         leg_9_trip_id, leg_9_duration_min,
+         leg_10_trip_id, leg_10_duration_min,
+         leg_11_trip_id, leg_11_duration_min,
+         leg_12_trip_id, leg_12_duration_min,
+         leg_13_trip_id, leg_13_duration_min,
+         leg_14_trip_id, leg_14_duration_min,
+         leg_15_trip_id, leg_15_duration_min,
+         leg_16_trip_id, leg_16_duration_min,
          leg_1_rebel_cost, leg_2_rebel_cost, leg_3_rebel_cost, leg_4_rebel_cost,
          leg_5_rebel_cost, leg_6_rebel_cost, leg_7_rebel_cost, leg_8_rebel_cost,
+         leg_9_rebel_cost, leg_10_rebel_cost, leg_11_rebel_cost, leg_12_rebel_cost,
+         leg_13_rebel_cost, leg_14_rebel_cost, leg_15_rebel_cost, leg_16_rebel_cost,
          rebel_cost_total, rebel_cost_stale,
          leg_1_wh_per_mile, leg_2_wh_per_mile, leg_3_wh_per_mile, leg_4_wh_per_mile,
          leg_5_wh_per_mile, leg_6_wh_per_mile, leg_7_wh_per_mile, leg_8_wh_per_mile,
+         leg_9_wh_per_mile, leg_10_wh_per_mile, leg_11_wh_per_mile, leg_12_wh_per_mile,
+         leg_13_wh_per_mile, leg_14_wh_per_mile, leg_15_wh_per_mile, leg_16_wh_per_mile,
          leg_1_start_soc_pct, leg_1_end_soc_pct,
          leg_2_start_soc_pct, leg_2_end_soc_pct,
          leg_3_start_soc_pct, leg_3_end_soc_pct,
@@ -680,12 +748,24 @@ export default async function maevingRoutes(fastify) {
          leg_6_start_soc_pct, leg_6_end_soc_pct,
          leg_7_start_soc_pct, leg_7_end_soc_pct,
          leg_8_start_soc_pct, leg_8_end_soc_pct,
+         leg_9_start_soc_pct, leg_9_end_soc_pct,
+         leg_10_start_soc_pct, leg_10_end_soc_pct,
+         leg_11_start_soc_pct, leg_11_end_soc_pct,
+         leg_12_start_soc_pct, leg_12_end_soc_pct,
+         leg_13_start_soc_pct, leg_13_end_soc_pct,
+         leg_14_start_soc_pct, leg_14_end_soc_pct,
+         leg_15_start_soc_pct, leg_15_end_soc_pct,
+         leg_16_start_soc_pct, leg_16_end_soc_pct,
          leg_1_started_at, leg_2_started_at, leg_3_started_at, leg_4_started_at,
          leg_5_started_at, leg_6_started_at, leg_7_started_at, leg_8_started_at,
+         leg_9_started_at, leg_10_started_at, leg_11_started_at, leg_12_started_at,
+         leg_13_started_at, leg_14_started_at, leg_15_started_at, leg_16_started_at,
          leg_1_ride_id, leg_2_ride_id, leg_3_ride_id, leg_4_ride_id,
          leg_5_ride_id, leg_6_ride_id, leg_7_ride_id, leg_8_ride_id,
+         leg_9_ride_id, leg_10_ride_id, leg_11_ride_id, leg_12_ride_id,
+         leg_13_ride_id, leg_14_ride_id, leg_15_ride_id, leg_16_ride_id,
          total_miles)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       device_id,
       now,
@@ -713,6 +793,22 @@ export default async function maevingRoutes(fastify) {
       leg_7_duration_min ?? null,
       leg_8_trip_id ?? null,
       leg_8_duration_min ?? null,
+      leg_9_trip_id ?? null,
+      leg_9_duration_min ?? null,
+      leg_10_trip_id ?? null,
+      leg_10_duration_min ?? null,
+      leg_11_trip_id ?? null,
+      leg_11_duration_min ?? null,
+      leg_12_trip_id ?? null,
+      leg_12_duration_min ?? null,
+      leg_13_trip_id ?? null,
+      leg_13_duration_min ?? null,
+      leg_14_trip_id ?? null,
+      leg_14_duration_min ?? null,
+      leg_15_trip_id ?? null,
+      leg_15_duration_min ?? null,
+      leg_16_trip_id ?? null,
+      leg_16_duration_min ?? null,
       legRebelCostValues[1] ?? null,
       legRebelCostValues[2] ?? null,
       legRebelCostValues[3] ?? null,
@@ -721,6 +817,14 @@ export default async function maevingRoutes(fastify) {
       legRebelCostValues[6] ?? null,
       legRebelCostValues[7] ?? null,
       legRebelCostValues[8] ?? null,
+      legRebelCostValues[9] ?? null,
+      legRebelCostValues[10] ?? null,
+      legRebelCostValues[11] ?? null,
+      legRebelCostValues[12] ?? null,
+      legRebelCostValues[13] ?? null,
+      legRebelCostValues[14] ?? null,
+      legRebelCostValues[15] ?? null,
+      legRebelCostValues[16] ?? null,
       hasRebelCost ? rebelCostTotal : null,
       0,
       rideDataByLeg[0]?.wh_per_mile ?? null,
@@ -731,6 +835,14 @@ export default async function maevingRoutes(fastify) {
       rideDataByLeg[5]?.wh_per_mile ?? null,
       rideDataByLeg[6]?.wh_per_mile ?? null,
       rideDataByLeg[7]?.wh_per_mile ?? null,
+      rideDataByLeg[8]?.wh_per_mile ?? null,
+      rideDataByLeg[9]?.wh_per_mile ?? null,
+      rideDataByLeg[10]?.wh_per_mile ?? null,
+      rideDataByLeg[11]?.wh_per_mile ?? null,
+      rideDataByLeg[12]?.wh_per_mile ?? null,
+      rideDataByLeg[13]?.wh_per_mile ?? null,
+      rideDataByLeg[14]?.wh_per_mile ?? null,
+      rideDataByLeg[15]?.wh_per_mile ?? null,
       rideDataByLeg[0]?.start_soc_pct ?? null,
       rideDataByLeg[0]?.end_soc_pct ?? null,
       rideDataByLeg[1]?.start_soc_pct ?? null,
@@ -747,14 +859,38 @@ export default async function maevingRoutes(fastify) {
       rideDataByLeg[6]?.end_soc_pct ?? null,
       rideDataByLeg[7]?.start_soc_pct ?? null,
       rideDataByLeg[7]?.end_soc_pct ?? null,
-      rideDataByLeg[0]?.started_at ?? null,
-      rideDataByLeg[1]?.started_at ?? null,
-      rideDataByLeg[2]?.started_at ?? null,
-      rideDataByLeg[3]?.started_at ?? null,
-      rideDataByLeg[4]?.started_at ?? null,
-      rideDataByLeg[5]?.started_at ?? null,
-      rideDataByLeg[6]?.started_at ?? null,
-      rideDataByLeg[7]?.started_at ?? null,
+      rideDataByLeg[8]?.start_soc_pct ?? null,
+      rideDataByLeg[8]?.end_soc_pct ?? null,
+      rideDataByLeg[9]?.start_soc_pct ?? null,
+      rideDataByLeg[9]?.end_soc_pct ?? null,
+      rideDataByLeg[10]?.start_soc_pct ?? null,
+      rideDataByLeg[10]?.end_soc_pct ?? null,
+      rideDataByLeg[11]?.start_soc_pct ?? null,
+      rideDataByLeg[11]?.end_soc_pct ?? null,
+      rideDataByLeg[12]?.start_soc_pct ?? null,
+      rideDataByLeg[12]?.end_soc_pct ?? null,
+      rideDataByLeg[13]?.start_soc_pct ?? null,
+      rideDataByLeg[13]?.end_soc_pct ?? null,
+      rideDataByLeg[14]?.start_soc_pct ?? null,
+      rideDataByLeg[14]?.end_soc_pct ?? null,
+      rideDataByLeg[15]?.start_soc_pct ?? null,
+      rideDataByLeg[15]?.end_soc_pct ?? null,
+      rideDataByLeg[0]?.started_at ?? leg_1_started_at_body ?? null,
+      rideDataByLeg[1]?.started_at ?? leg_2_started_at_body ?? null,
+      rideDataByLeg[2]?.started_at ?? leg_3_started_at_body ?? null,
+      rideDataByLeg[3]?.started_at ?? leg_4_started_at_body ?? null,
+      rideDataByLeg[4]?.started_at ?? leg_5_started_at_body ?? null,
+      rideDataByLeg[5]?.started_at ?? leg_6_started_at_body ?? null,
+      rideDataByLeg[6]?.started_at ?? leg_7_started_at_body ?? null,
+      rideDataByLeg[7]?.started_at ?? leg_8_started_at_body ?? null,
+      rideDataByLeg[8]?.started_at ?? leg_9_started_at_body ?? null,
+      rideDataByLeg[9]?.started_at ?? leg_10_started_at_body ?? null,
+      rideDataByLeg[10]?.started_at ?? leg_11_started_at_body ?? null,
+      rideDataByLeg[11]?.started_at ?? leg_12_started_at_body ?? null,
+      rideDataByLeg[12]?.started_at ?? leg_13_started_at_body ?? null,
+      rideDataByLeg[13]?.started_at ?? leg_14_started_at_body ?? null,
+      rideDataByLeg[14]?.started_at ?? leg_15_started_at_body ?? null,
+      rideDataByLeg[15]?.started_at ?? leg_16_started_at_body ?? null,
       leg_1_ride_id ?? null,
       leg_2_ride_id ?? null,
       leg_3_ride_id ?? null,
@@ -763,6 +899,14 @@ export default async function maevingRoutes(fastify) {
       leg_6_ride_id ?? null,
       leg_7_ride_id ?? null,
       leg_8_ride_id ?? null,
+      leg_9_ride_id ?? null,
+      leg_10_ride_id ?? null,
+      leg_11_ride_id ?? null,
+      leg_12_ride_id ?? null,
+      leg_13_ride_id ?? null,
+      leg_14_ride_id ?? null,
+      leg_15_ride_id ?? null,
+      leg_16_ride_id ?? null,
       sessionTotalMiles > 0 ? sessionTotalMiles : null,
     );
 
@@ -1069,7 +1213,7 @@ export default async function maevingRoutes(fastify) {
     }
 
     // Consume rides that were prestaged for this session
-    for (let n = 1; n <= 8; n++) {
+    for (let n = 1; n <= 16; n++) {
       const rideId = session[`leg_${n}_ride_id`];
       if (rideId != null) {
         db.prepare('DELETE FROM maeving_rides WHERE id = ?').run(rideId);
@@ -1255,13 +1399,17 @@ export default async function maevingRoutes(fastify) {
     // Recompute avg_wh_per_mile from remaining sessions
     const whRows = db.prepare(`
       SELECT leg_1_wh_per_mile, leg_2_wh_per_mile, leg_3_wh_per_mile, leg_4_wh_per_mile,
-             leg_5_wh_per_mile, leg_6_wh_per_mile, leg_7_wh_per_mile, leg_8_wh_per_mile
+             leg_5_wh_per_mile, leg_6_wh_per_mile, leg_7_wh_per_mile, leg_8_wh_per_mile,
+             leg_9_wh_per_mile, leg_10_wh_per_mile, leg_11_wh_per_mile, leg_12_wh_per_mile,
+             leg_13_wh_per_mile, leg_14_wh_per_mile, leg_15_wh_per_mile, leg_16_wh_per_mile
       FROM maeving_sessions
     `).all();
     const allWh = [];
     for (const row of whRows) {
       for (const col of ['leg_1_wh_per_mile','leg_2_wh_per_mile','leg_3_wh_per_mile','leg_4_wh_per_mile',
-                          'leg_5_wh_per_mile','leg_6_wh_per_mile','leg_7_wh_per_mile','leg_8_wh_per_mile']) {
+                          'leg_5_wh_per_mile','leg_6_wh_per_mile','leg_7_wh_per_mile','leg_8_wh_per_mile',
+                          'leg_9_wh_per_mile','leg_10_wh_per_mile','leg_11_wh_per_mile','leg_12_wh_per_mile',
+                          'leg_13_wh_per_mile','leg_14_wh_per_mile','leg_15_wh_per_mile','leg_16_wh_per_mile']) {
         if (row[col] != null) allWh.push(row[col]);
       }
     }
