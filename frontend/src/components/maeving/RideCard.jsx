@@ -16,6 +16,34 @@ function getElapsed(startedAt) {
   return `${h}:${String(m).padStart(2, '0')}`;
 }
 
+function getDefaultLegId(legs) {
+  if (!isMobile()) return '';
+  const now = new Date();
+  const dow = now.getDay(); // 0=Sun, 6=Sat
+  if (dow === 0 || dow === 6) return '';
+  const totalMin = now.getHours() * 60 + now.getMinutes();
+  const month = now.getMonth(); // 0-indexed: 5=Jun, 6=Jul, 7=Aug
+  const day = now.getDate();
+
+  let legName = null;
+
+  if (totalMin >= 360 && totalMin < 600) {
+    // 6:00 AM – 10:00 AM: summer (Jun 1 – Aug 15) vs. rest of year
+    const isSummer = (month === 5) || (month === 6) || (month === 7 && day <= 15);
+    legName = isSummer ? 'Work Riverwoods' : 'Work Townline';
+  } else if (totalMin >= 690 && totalMin < 840) {
+    // 11:30 AM – 2:00 PM
+    legName = 'CGA Bugout Justen';
+  } else if (totalMin >= 870 && totalMin < 1080) {
+    // 2:30 PM – 6:00 PM
+    legName = 'Work Riverwoods';
+  }
+
+  if (!legName) return '';
+  const leg = legs.find(l => l.description === legName);
+  return leg ? String(leg.id) : '';
+}
+
 export function RideCard() {
   // 'loading' | 'idle' | 'selecting' | 'active'
   const [uiState, setUiState] = useState('loading');
@@ -504,7 +532,7 @@ export function RideCard() {
     <div className="mx-auto w-full max-w-5xl">
       <button
         type="button"
-        onClick={() => { setUiState('selecting'); setError(''); }}
+        onClick={() => { setSelectedLegId(getDefaultLegId(legs)); setUiState('selecting'); setError(''); }}
         className="flex min-h-[80px] w-full items-center justify-center rounded-[2rem] bg-green-700 px-6 py-5 text-xl font-bold text-white transition-colors hover:bg-green-600"
       >
         New Ride
