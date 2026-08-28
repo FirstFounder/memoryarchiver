@@ -532,8 +532,8 @@ export default function App() {
           {isMaeving && activeTab === 'maeving' && (
             <>
               <RideCard />
-              <MaevingPanel />
-              <LegsCard />
+              {!isMobile && <MaevingPanel />}
+              {!isMobile && <LegsCard />}
             </>
           )}
 

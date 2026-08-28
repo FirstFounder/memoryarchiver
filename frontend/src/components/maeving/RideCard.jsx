@@ -16,7 +16,18 @@ function getElapsed(startedAt) {
   return `${h}:${String(m).padStart(2, '0')}`;
 }
 
+const LAST_LEG_KEY = 'maeving_last_leg';
+
 function getDefaultLegId(legs) {
+  // BGWoodmans sticky: if last ride was to either BGWoodmans variant, pre-select BG - BGWoodmans
+  try {
+    const lastLeg = localStorage.getItem(LAST_LEG_KEY);
+    if (lastLeg === 'CGA - BGWoodmans' || lastLeg === 'BG - BGWoodmans') {
+      const bgLeg = legs.find(l => l.description === 'BG - BGWoodmans');
+      if (bgLeg) return String(bgLeg.id);
+    }
+  } catch { /* ignore */ }
+
   if (!isMobile()) return '';
   const now = new Date();
   const dow = now.getDay(); // 0=Sun, 6=Sat
@@ -105,6 +116,13 @@ export function RideCard() {
     return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   }, [activeRide?.id]);
 
+  // On mobile, skip the idle "New Ride" button and jump straight to leg selection
+  useEffect(() => {
+    if (!isMobile() || uiState !== 'idle' || legs.length === 0) return;
+    setSelectedLegId(getDefaultLegId(legs));
+    setUiState('selecting');
+  }, [uiState, legs]);
+
   const syncRide = useCallback(async () => {
     try {
       const ride = await getActiveRide();
@@ -152,6 +170,10 @@ export function RideCard() {
     setError('');
     try {
       const ride = await startRide({ trip_id: Number(selectedLegId), start_soc_pct: startSoc });
+      const chosenLeg = legs.find(l => String(l.id) === String(selectedLegId));
+      if (chosenLeg) {
+        try { localStorage.setItem(LAST_LEG_KEY, chosenLeg.description); } catch { /* ignore */ }
+      }
       setActiveRide(ride);
       setEndSoc(computeEstimatedEndSoc(ride.start_soc_pct ?? startSoc, ride.trip_miles, configRef.current));
       setUiState('active');
