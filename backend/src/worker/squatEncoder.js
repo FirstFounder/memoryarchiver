@@ -4,8 +4,7 @@ import { chown, chmod, copyFile } from 'fs/promises';
 import config from '../config.js';
 import { buildFadeFilters } from './fades.js';
 
-const NAS_ROOT    = '/volume1/RFA';
-const SQUAT_MOUNT = '/Volumes/iloRFA';
+const NAS_ROOT = '/volume1/RFA';
 
 /**
  * Translate an iolo-local path under NAS_ROOT to squat's NFS mount path.
@@ -15,7 +14,7 @@ function toSquatPath(ioloPath) {
   if (!ioloPath.startsWith(NAS_ROOT)) {
     throw new Error(`Path not on RFA share: ${ioloPath}`);
   }
-  return SQUAT_MOUNT + ioloPath.slice(NAS_ROOT.length);
+  return config.squatMountPath + ioloPath.slice(NAS_ROOT.length);
 }
 
 /**

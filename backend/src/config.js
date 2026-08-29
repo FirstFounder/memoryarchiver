@@ -83,10 +83,11 @@ const config = Object.freeze({
   weatherLon: parseFloat(process.env.WEATHER_LON ?? '-87.7538'),
 
   // Remote encoder (squat — Mac Mini M2 Pro)
-  squatEnabled:  process.env.SQUAT_ENABLED === 'true',
-  squatHost:     process.env.SQUAT_HOST ?? '192.168.106.16',
-  squatPort:     Number(process.env.SQUAT_PORT ?? 9662),
-  squatQuality:  Number(process.env.SQUAT_QUALITY ?? 68),  // VideoToolbox -q:v scale (0–100, higher=larger)
+  squatEnabled:   process.env.SQUAT_ENABLED === 'true',
+  squatHost:      process.env.SQUAT_HOST ?? '192.168.106.16',
+  squatPort:      Number(process.env.SQUAT_PORT ?? 9662),
+  squatQuality:   Number(process.env.SQUAT_QUALITY ?? 68),  // VideoToolbox -q:v scale (0–100, higher=larger)
+  squatMountPath: process.env.SQUAT_MOUNT_PATH ?? '/Volumes/iloRFA',
 
   // Audio transcription (iolo only; squat reuses squatHost/squatPort above)
   audioEnabled:  process.env.AUDIO_ENABLED === 'true',

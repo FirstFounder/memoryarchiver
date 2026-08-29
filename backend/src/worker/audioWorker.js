@@ -7,8 +7,7 @@ const POLL_INTERVAL_MS  = 10_000;
 const STATUS_POLL_MS    = 5_000;
 const TIMEOUT_MS        = 3 * 60 * 60 * 1000;  // 3 hours max per file
 
-const NAS_ROOT    = '/volume1/RFA';
-const SQUAT_MOUNT = '/Volumes/iloRFA';
+const NAS_ROOT = '/volume1/RFA';
 
 // Model ID must match the HuggingFace repo used by mlx-whisper on squat.
 // Overridable via WHISPER_MODEL in backend/.env.
@@ -21,7 +20,7 @@ function toSquatAudioPath(ioloPath) {
   if (!ioloPath.startsWith(NAS_ROOT)) {
     throw new Error(`Path not on RFA share: ${ioloPath}`);
   }
-  return SQUAT_MOUNT + ioloPath.slice(NAS_ROOT.length);
+  return config.squatMountPath + ioloPath.slice(NAS_ROOT.length);
 }
 
 function sleep(ms) {
