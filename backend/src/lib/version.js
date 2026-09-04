@@ -81,7 +81,7 @@ export function computeNextVersion(db, year, month, day) {
   // ── Scan queued / in-flight jobs in the DB ────────────────────────────────
   const rows = db.prepare(`
     SELECT output_filename FROM jobs
-    WHERE status IN ('pending','processing')
+    WHERE status IN ('pending','processing','scheduled')
       AND output_filename IS NOT NULL
   `).all();
 

@@ -1,4 +1,5 @@
 import config from '../config.js';
+import { nightQueueSettings } from '../lib/nightQueue.js';
 
 export default async function appConfigRoute(fastify) {
   fastify.get('/api/config', async (_req, reply) => {
@@ -16,6 +17,7 @@ export default async function appConfigRoute(fastify) {
       squatHost:       config.squatHost,
       squatPort:       config.squatPort,
       squatQuality:    config.squatQuality,
+      nightQueue:      nightQueueSettings,
       audioEnabled:    config.audioEnabled,
       receiptsEnabled: config.receiptsEnabled,
       maevingEnabled:  config.maevingEnabled,

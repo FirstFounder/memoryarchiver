@@ -1,11 +1,13 @@
 import { useState, useEffect } from 'react';
-import { deleteJob } from '../api/jobs.js';
+import { deleteJob, setJobSchedule } from '../api/jobs.js';
 import { useJobStore } from '../store/jobStore.js';
 import { useAppConfigStore } from '../store/appConfigStore.js';
 import { ProgressBar } from './ProgressBar.jsx';
+import { formatNight } from '../lib/nightLabel.js';
 
 const STATUS_META = {
   pending:    { label: 'Queued',    dot: 'bg-slate-500',   bar: 'bg-slate-500' },
+  scheduled:  { label: 'Scheduled', dot: 'bg-indigo-400',  bar: 'bg-indigo-400' },
   processing: { label: 'Encoding', dot: 'bg-amber-400 animate-pulse', bar: 'bg-amber-400' },
   done:       { label: 'Done',      dot: 'bg-green-500',   bar: 'bg-green-500' },
   error:      { label: 'Error',     dot: 'bg-red-500',     bar: 'bg-red-500' },
@@ -53,16 +55,21 @@ function formatElapsed(seconds) {
  */
 export function JobCard({ job }) {
   const removeJob    = useJobStore(s => s.removeJob);
+  const upsertJob    = useJobStore(s => s.upsertJob);
   const squatEnabled = useAppConfigStore(s => s.squatEnabled);
+  const nightQueue   = useAppConfigStore(s => s.nightQueue);
   const [deleting, setDeleting]         = useState(false);
   const [forceConfirm, setForceConfirm] = useState(false);
   const [forceError, setForceError]     = useState(null);
   const [elapsed, setElapsed]           = useState(0);
+  const [rescheduling, setRescheduling] = useState(false);
 
   const meta = STATUS_META[job.status] ?? STATUS_META.pending;
   const isProcessing  = job.status === 'processing';
+  const isScheduled   = job.status === 'scheduled';
   const isRemote      = isProcessing && squatEnabled;
   const canDelete     = !isProcessing;
+  const canReschedule = isScheduled || job.status === 'pending';
 
   // Live elapsed-time counter for remote (squat) jobs
   useEffect(() => {
@@ -82,6 +89,16 @@ export function JobCard({ job }) {
     } catch {
       setDeleting(false);
     }
+  }
+
+  async function handleReschedule(mode) {
+    if (rescheduling) return;
+    setRescheduling(true);
+    try {
+      const result = await setJobSchedule(job.id, mode);
+      upsertJob({ id: job.id, status: result.status, scheduled_for: result.scheduledFor });
+    } catch { /* the SSE stream will correct the card either way */ }
+    setRescheduling(false);
   }
 
   async function handleForceDelete() {
@@ -123,7 +140,11 @@ export function JobCard({ job }) {
         <div className="flex items-center gap-1.5 shrink-0">
           <span className={`w-2 h-2 rounded-full ${meta.dot}`} />
           <span className="text-xs text-slate-400">
-            {isRemote ? 'Encoding on squat' : meta.label}
+            {isRemote
+              ? 'Encoding on squat'
+              : isScheduled && job.scheduled_for
+                ? formatNight(job.scheduled_for, nightQueue.tz)
+                : meta.label}
           </span>
         </div>
       </div>
@@ -159,9 +180,20 @@ export function JobCard({ job }) {
         </p>
       )}
 
-      {/* Delete button — terminal states */}
+      {/* Delete + reschedule — non-processing states */}
       {canDelete && (
-        <div className="flex justify-end">
+        <div className="flex justify-end items-center gap-3">
+          {canReschedule && (
+            <button
+              onClick={() => handleReschedule(isScheduled ? 'now' : 'night')}
+              disabled={rescheduling || deleting}
+              className="text-xs text-slate-500 hover:text-indigo-400 transition-colors disabled:opacity-40"
+            >
+              {rescheduling
+                ? 'Moving…'
+                : isScheduled ? 'Encode now' : 'Move to tonight'}
+            </button>
+          )}
           <button
             onClick={handleDelete}
             disabled={deleting}

@@ -18,6 +18,8 @@ export const useAppConfigStore = create((set) => ({
   squatHost:       '192.168.106.16',
   squatPort:       9662,
   squatQuality:    68,
+  // Nightly encode window — overwritten by /api/config on load.
+  nightQueue:      { tz: 'America/Chicago', startHour: 1, windowHours: 6, perNight: 5 },
   audioEnabled:    false,
   receiptsEnabled: false,
   maevingEnabled:  false,

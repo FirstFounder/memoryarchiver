@@ -82,12 +82,22 @@ const config = Object.freeze({
   weatherLat: parseFloat(process.env.WEATHER_LAT ?? '41.8827'),
   weatherLon: parseFloat(process.env.WEATHER_LON ?? '-87.7538'),
 
-  // Remote encoder (squat — Mac Mini M2 Pro)
+  // Remote encoder (squat — Mac Mini M2 Pro).
+  // Off by default: macOS suspends long-running background ffmpeg processes,
+  // which broke multi-job queues.  Encoding runs locally unless this is set.
   squatEnabled:   process.env.SQUAT_ENABLED === 'true',
   squatHost:      process.env.SQUAT_HOST ?? '192.168.106.16',
   squatPort:      Number(process.env.SQUAT_PORT ?? 9662),
   squatQuality:   Number(process.env.SQUAT_QUALITY ?? 68),  // VideoToolbox -q:v scale (0–100, higher=larger)
   squatMountPath: process.env.SQUAT_MOUNT_PATH ?? '/Volumes/iloRFA',
+
+  // Nightly encode queue — defers submitted jobs to an overnight window so a
+  // long encode backlog doesn't compete with daytime use of the NAS.
+  // Times are wall-clock in nightQueueTz; DST is handled by lib/nightQueue.js.
+  nightQueueTz:          process.env.NIGHT_QUEUE_TZ ?? 'America/Chicago',
+  nightQueueStartHour:   Number(process.env.NIGHT_QUEUE_START_HOUR ?? 1),
+  nightQueueWindowHours: Number(process.env.NIGHT_QUEUE_WINDOW_HOURS ?? 6),
+  nightQueuePerNight:    Number(process.env.NIGHT_QUEUE_PER_NIGHT ?? 5),
 
   // Audio transcription (iolo only; squat reuses squatHost/squatPort above)
   audioEnabled:  process.env.AUDIO_ENABLED === 'true',

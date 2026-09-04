@@ -3,6 +3,7 @@ import db from '../db/client.js';
 import config from '../config.js';
 import { isAllowedPath } from '../lib/allowedRoots.js';
 import { parseDateComponents, buildFilename, computeNextVersion } from '../lib/version.js';
+import { nextAvailableNight, formatNight } from '../lib/nightQueue.js';
 import { probe } from '../worker/ffprobe.js';
 
 /**
@@ -22,11 +23,13 @@ import { probe } from '../worker/ffprobe.js';
  *   ],
  *   shortDesc:  string,
  *   longDesc:   string,
- *   outputDest: 'fam' | 'vault'
+ *   outputDest: 'fam' | 'vault',
+ *   schedule?:  'night' | 'now'   // default 'night'
  * }
  *
  * Creates a job row and job_files rows inside a BEGIN EXCLUSIVE transaction
- * to guarantee version number uniqueness.
+ * to guarantee version number uniqueness — and, for nightly jobs, that two
+ * concurrent submits can't claim the same slot on a night.
  */
 export default async function submitRoutes(fastify) {
   fastify.post('/api/jobs', {
@@ -39,11 +42,12 @@ export default async function submitRoutes(fastify) {
           shortDesc:  { type: 'string', minLength: 1, maxLength: 100 },
           longDesc:   { type: 'string', maxLength: 500 },
           outputDest: { type: 'string', enum: ['fam', 'vault'] },
+          schedule:   { type: 'string', enum: ['night', 'now'], default: 'night' },
         },
       },
     },
   }, async (req, reply) => {
-    const { files, shortDesc, longDesc, outputDest } = req.body;
+    const { files, shortDesc, longDesc, outputDest, schedule = 'night' } = req.body;
 
     // ── Validate all file paths and resolve to absolute ──────────────────────
     // Uploaded files arrive as absolute paths (under UPLOAD_TEMP_DIR).
@@ -79,7 +83,7 @@ export default async function submitRoutes(fastify) {
     const earliestTs = timestamps.sort()[0] ?? new Date().toISOString();
 
     // ── Assign version + build filename inside an exclusive transaction ────────
-    let jobId, outputFilename, outputPath;
+    let jobId, outputFilename, outputPath, scheduledFor = null;
 
     db.transaction(() => {
       const { year, month, day, monthName } = parseDateComponents(earliestTs);
@@ -89,12 +93,19 @@ export default async function submitRoutes(fastify) {
       outputPath       = path.join(config.nasOutputRoot, treeDir, monthName, String(year));
       outputFilename   = buildFilename({ monthName, year, day, version, shortDesc });
 
+      // Nightly jobs land on the first night with a free slot; five per night.
+      scheduledFor = schedule === 'night' ? nextAvailableNight(db) : null;
+
       const result = db.prepare(`
         INSERT INTO jobs
           (status, output_dest, short_desc, long_desc,
-           output_filename, output_path, earliest_ts, version)
-        VALUES ('pending', ?, ?, ?, ?, ?, ?, ?)
-      `).run(outputDest, shortDesc, longDesc, outputFilename, outputPath, earliestTs, version);
+           output_filename, output_path, earliest_ts, version, scheduled_for)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        scheduledFor === null ? 'pending' : 'scheduled',
+        outputDest, shortDesc, longDesc, outputFilename, outputPath,
+        earliestTs, version, scheduledFor,
+      );
 
       jobId = result.lastInsertRowid;
 
@@ -111,6 +122,12 @@ export default async function submitRoutes(fastify) {
       }
     })();
 
-    return reply.code(201).send({ jobId, outputFilename });
+    return reply.code(201).send({
+      jobId,
+      outputFilename,
+      status:        scheduledFor === null ? 'pending' : 'scheduled',
+      scheduledFor,
+      scheduledLabel: scheduledFor === null ? null : formatNight(scheduledFor),
+    });
   });
 }

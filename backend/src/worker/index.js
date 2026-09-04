@@ -6,33 +6,63 @@ import config from '../config.js';
 import { probe } from './ffprobe.js';
 import { runPipeline } from './pipeline.js';
 import { runSquatPipeline } from './squatEncoder.js';
+import { isWithinNightWindow, reconcileSchedule, formatNight } from '../lib/nightQueue.js';
 
 const POLL_INTERVAL_MS = 3_000;
+// The nightly queue is re-packed on this cadence so jobs whose night passed
+// while the server was down (or whose night overran its window) roll forward.
+const RECONCILE_INTERVAL_MS = 60_000;
 let running = false;
 let pollTimer = null;
+let reconcileTimer = null;
 
 /**
  * On startup, reset any job that was marked 'processing' (i.e. interrupted by
- * a crash or restart) back to 'pending' so it will be retried.
+ * a crash or restart) so it will be retried. A job that came from the nightly
+ * queue goes back to 'scheduled' rather than 'pending' so a daytime restart
+ * doesn't start a night job in the middle of the afternoon.
  */
 function resetStalledJobs() {
   const n = db.prepare(`
-    UPDATE jobs SET status = 'pending', progress = 0, ffmpeg_pid = NULL,
-                   updated_at = unixepoch()
-    WHERE status = 'processing'
+    UPDATE jobs
+       SET status = CASE WHEN scheduled_for IS NULL THEN 'pending' ELSE 'scheduled' END,
+           progress = 0, ffmpeg_pid = NULL, updated_at = unixepoch()
+     WHERE status = 'processing'
   `).run().changes;
-  if (n > 0) console.log(`[worker] Reset ${n} stalled job(s) to pending.`);
+  if (n > 0) console.log(`[worker] Reset ${n} stalled job(s).`);
 }
 
 /**
- * Claim and process the oldest pending job.
+ * The next job eligible to run.
+ *
+ * Jobs queued for immediate encoding always win. Nightly jobs become eligible
+ * once their assigned night has arrived and the clock is still inside the
+ * night window — this is what replaces an external scheduler: the poll loop
+ * itself is the trigger, so nothing needs a cron or Task Scheduler entry.
+ */
+function claimableJob() {
+  const immediate = db.prepare(`
+    SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1
+  `).get();
+  if (immediate) return immediate;
+
+  if (!isWithinNightWindow()) return null;
+
+  return db.prepare(`
+    SELECT * FROM jobs
+     WHERE status = 'scheduled' AND scheduled_for <= unixepoch()
+     ORDER BY scheduled_for ASC, created_at ASC
+     LIMIT 1
+  `).get();
+}
+
+/**
+ * Claim and process the next eligible job.
  */
 async function tick() {
   if (running) return;
 
-  const job = db.prepare(`
-    SELECT * FROM jobs WHERE status = 'pending' ORDER BY created_at ASC LIMIT 1
-  `).get();
+  const job = claimableJob();
 
   if (!job) return;
 
@@ -140,13 +170,30 @@ function emit(jobId, payload) {
   emitter.emit('job:update', { id: jobId, ...payload });
 }
 
+/**
+ * Re-pack the nightly queue and push any moves out over SSE.
+ */
+function reconcileNightly() {
+  try {
+    for (const row of reconcileSchedule(db)) {
+      console.log(`[worker] Job ${row.id} rescheduled for ${formatNight(row.scheduled_for)}`);
+      emit(row.id, { status: 'scheduled', scheduled_for: row.scheduled_for });
+    }
+  } catch (err) {
+    console.error('[worker] Nightly reconcile failed:', err.message);
+  }
+}
+
 export function startWorker() {
   resetStalledJobs();
+  reconcileNightly();
   pollTimer = setInterval(tick, POLL_INTERVAL_MS);
+  reconcileTimer = setInterval(reconcileNightly, RECONCILE_INTERVAL_MS);
   tick(); // kick immediately
   console.log('[worker] Started — polling every', POLL_INTERVAL_MS, 'ms');
 }
 
 export function stopWorker() {
   if (pollTimer) clearInterval(pollTimer);
+  if (reconcileTimer) clearInterval(reconcileTimer);
 }

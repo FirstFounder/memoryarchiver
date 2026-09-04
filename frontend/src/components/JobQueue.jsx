@@ -21,6 +21,9 @@ export function JobQueue() {
           {counts.pending > 0 && (
             <span>{counts.pending} queued</span>
           )}
+          {counts.scheduled > 0 && (
+            <span className="text-indigo-400">{counts.scheduled} scheduled</span>
+          )}
           {counts.done > 0 && (
             <span className="text-green-500">{counts.done} done</span>
           )}

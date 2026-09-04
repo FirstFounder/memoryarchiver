@@ -8,6 +8,30 @@ Personal home-server monorepo with a Fastify backend and React frontend for arch
 2. Start the backend with `npm run dev:backend`.
 3. Start the frontend with `npm run dev:frontend`.
 
+## Encoding
+
+Jobs encode locally with libx265 (`FFMPEG_*` / `NICE_LEVEL` in `.env`).
+Setting `SQUAT_ENABLED=true` instead dispatches each job to squat, the Mac Mini,
+over NFS — left off because macOS suspends long-running background ffmpeg
+processes, which killed jobs partway through a queue.
+
+### Nightly queue
+
+The submit form offers **Tonight** (the default) or **Now**. A "Tonight" job is
+parked with status `scheduled` and a `scheduled_for` timestamp — the 1:00 AM
+Central boundary of the night it was assigned to — and at most five jobs are
+assigned to any one night, so thirteen submissions spread across three nights.
+
+There is no cron or Task Scheduler entry: the encode worker already polls every
+three seconds, and treats a scheduled job as eligible once its night has arrived
+and the clock is still inside the window. A job whose night passed while the
+server was down rolls onto the next night rather than starting mid-morning, and
+so does anything still waiting when the window closes (a job already encoding
+runs to completion). Deleting a job or pulling one forward with **Encode now**
+re-packs the remaining nights so no slots are wasted.
+
+Tunable in `.env` — see `NIGHT_QUEUE_*` in [.env.example](.env.example).
+
 ## Tesla Environment Variables
 
 Set these in `.env` when enabling the Tesla Phase 0 infrastructure:
