@@ -151,7 +151,7 @@ export function RideCard() {
   }, [uiState]);
 
   useEffect(() => {
-    getLegs().then(setLegs).catch(() => {});
+    getLegs().then(all => setLegs(all.filter(l => !l.hidden))).catch(() => {});
     getConfig().then((cfg) => {
       setStartSoc(cfg.prev_max_soc_pct ?? 50);
       configRef.current = cfg;
