@@ -18,7 +18,41 @@ function getElapsed(startedAt) {
 
 const LAST_LEG_KEY = 'maeving_last_leg';
 
+// Time-of-day / season default, mobile weekdays only. Returns a leg description or null.
+function getTimeBasedLegName() {
+  if (!isMobile()) return null;
+  const now = new Date();
+  const dow = now.getDay(); // 0=Sun, 6=Sat
+  if (dow === 0 || dow === 6) return null;
+  const totalMin = now.getHours() * 60 + now.getMinutes();
+  const month = now.getMonth(); // 0-indexed: 5=Jun, 6=Jul, 7=Aug
+  const day = now.getDate();
+
+  if (totalMin >= 360 && totalMin < 600) {
+    // 6:00 AM – 10:00 AM: summer (Jun 1 – Aug 15) vs. rest of year
+    const isSummer = (month === 5) || (month === 6) || (month === 7 && day <= 15);
+    return isSummer ? 'Work Riverwoods' : 'Work Townline';
+  }
+  if (totalMin >= 690 && totalMin < 840) {
+    // 11:30 AM – 2:00 PM
+    return 'CGA Bugout Justen';
+  }
+  if (totalMin >= 870 && totalMin < 1080) {
+    // 2:30 PM – 6:00 PM
+    return 'Work Riverwoods';
+  }
+  return null;
+}
+
 function getDefaultLegId(legs) {
+  const timeLegName = getTimeBasedLegName();
+
+  // A Work Riverwoods / Work Townline commute default wins over the BGWoodmans sticky.
+  if (timeLegName === 'Work Riverwoods' || timeLegName === 'Work Townline') {
+    const workLeg = legs.find(l => l.description === timeLegName);
+    if (workLeg) return String(workLeg.id);
+  }
+
   // BGWoodmans sticky: if last ride was to either BGWoodmans variant, pre-select BG - BGWoodmans
   try {
     const lastLeg = localStorage.getItem(LAST_LEG_KEY);
@@ -28,30 +62,8 @@ function getDefaultLegId(legs) {
     }
   } catch { /* ignore */ }
 
-  if (!isMobile()) return '';
-  const now = new Date();
-  const dow = now.getDay(); // 0=Sun, 6=Sat
-  if (dow === 0 || dow === 6) return '';
-  const totalMin = now.getHours() * 60 + now.getMinutes();
-  const month = now.getMonth(); // 0-indexed: 5=Jun, 6=Jul, 7=Aug
-  const day = now.getDate();
-
-  let legName = null;
-
-  if (totalMin >= 360 && totalMin < 600) {
-    // 6:00 AM – 10:00 AM: summer (Jun 1 – Aug 15) vs. rest of year
-    const isSummer = (month === 5) || (month === 6) || (month === 7 && day <= 15);
-    legName = isSummer ? 'Work Riverwoods' : 'Work Townline';
-  } else if (totalMin >= 690 && totalMin < 840) {
-    // 11:30 AM – 2:00 PM
-    legName = 'CGA Bugout Justen';
-  } else if (totalMin >= 870 && totalMin < 1080) {
-    // 2:30 PM – 6:00 PM
-    legName = 'Work Riverwoods';
-  }
-
-  if (!legName) return '';
-  const leg = legs.find(l => l.description === legName);
+  if (!timeLegName) return '';
+  const leg = legs.find(l => l.description === timeLegName);
   return leg ? String(leg.id) : '';
 }
 
