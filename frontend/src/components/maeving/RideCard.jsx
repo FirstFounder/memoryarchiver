@@ -17,6 +17,19 @@ function getElapsed(startedAt) {
 }
 
 const LAST_LEG_KEY = 'maeving_last_leg';
+// '1' when the previous ride's leg came from the BGWoodmans sticky default rather than a manual pick.
+const LAST_LEG_AUTO_KEY = 'maeving_last_leg_auto';
+
+function readLastLeg() {
+  try {
+    return {
+      description: localStorage.getItem(LAST_LEG_KEY),
+      wasAuto: localStorage.getItem(LAST_LEG_AUTO_KEY) === '1',
+    };
+  } catch {
+    return { description: null, wasAuto: false };
+  }
+}
 
 // Time-of-day / season default, mobile weekdays only. Returns a leg description or null.
 function getTimeBasedLegName() {
@@ -44,27 +57,24 @@ function getTimeBasedLegName() {
   return null;
 }
 
-function getDefaultLegId(legs) {
-  const timeLegName = getTimeBasedLegName();
+// Returns { legId, sticky } — sticky marks that the BGWoodmans rule produced this default.
+function getDefaultLeg(legs) {
+  const { description: lastLeg, wasAuto } = readLastLeg();
 
-  // A Work Riverwoods / Work Townline commute default wins over the BGWoodmans sticky.
-  if (timeLegName === 'Work Riverwoods' || timeLegName === 'Work Townline') {
-    const workLeg = legs.find(l => l.description === timeLegName);
-    if (workLeg) return String(workLeg.id);
+  // BGWoodmans sticky, ahead of every Work rule: a CGA - BGWoodmans ride, or a manually
+  // chosen BG - BGWoodmans ride, is followed by BG - BGWoodmans. Once that default has
+  // itself fired (wasAuto), the next ride falls through to the time-of-day rules so the
+  // sticky cannot repeat forever.
+  const stickyApplies = lastLeg === 'CGA - BGWoodmans' || (lastLeg === 'BG - BGWoodmans' && !wasAuto);
+  if (stickyApplies) {
+    const bgLeg = legs.find(l => l.description === 'BG - BGWoodmans');
+    if (bgLeg) return { legId: String(bgLeg.id), sticky: true };
   }
 
-  // BGWoodmans sticky: if last ride was to either BGWoodmans variant, pre-select BG - BGWoodmans
-  try {
-    const lastLeg = localStorage.getItem(LAST_LEG_KEY);
-    if (lastLeg === 'CGA - BGWoodmans' || lastLeg === 'BG - BGWoodmans') {
-      const bgLeg = legs.find(l => l.description === 'BG - BGWoodmans');
-      if (bgLeg) return String(bgLeg.id);
-    }
-  } catch { /* ignore */ }
-
-  if (!timeLegName) return '';
+  const timeLegName = getTimeBasedLegName();
+  if (!timeLegName) return { legId: '', sticky: false };
   const leg = legs.find(l => l.description === timeLegName);
-  return leg ? String(leg.id) : '';
+  return { legId: leg ? String(leg.id) : '', sticky: false };
 }
 
 export function RideCard() {
@@ -81,6 +91,8 @@ export function RideCard() {
   const [startSoc, setStartSoc] = useState(50);
   const [endSoc, setEndSoc] = useState(50);
   const timerRef = useRef(null);
+  // Leg id the BGWoodmans sticky pre-selected, so we know whether a started ride used it.
+  const stickyDefaultLegIdRef = useRef(null);
 
   const [telemetry, setTelemetry] = useState(null);
   const configRef = useRef(null);
@@ -128,12 +140,18 @@ export function RideCard() {
     return () => { if (timerRef.current) { clearInterval(timerRef.current); timerRef.current = null; } };
   }, [activeRide?.id]);
 
+  const applyDefaultLeg = useCallback(() => {
+    const { legId, sticky } = getDefaultLeg(legs);
+    stickyDefaultLegIdRef.current = sticky ? legId : null;
+    setSelectedLegId(legId);
+  }, [legs]);
+
   // On mobile, skip the idle "New Ride" button and jump straight to leg selection
   useEffect(() => {
     if (!isMobile() || uiState !== 'idle' || legs.length === 0) return;
-    setSelectedLegId(getDefaultLegId(legs));
+    applyDefaultLeg();
     setUiState('selecting');
-  }, [uiState, legs]);
+  }, [uiState, legs, applyDefaultLeg]);
 
   const syncRide = useCallback(async () => {
     try {
@@ -184,7 +202,13 @@ export function RideCard() {
       const ride = await startRide({ trip_id: Number(selectedLegId), start_soc_pct: startSoc });
       const chosenLeg = legs.find(l => String(l.id) === String(selectedLegId));
       if (chosenLeg) {
-        try { localStorage.setItem(LAST_LEG_KEY, chosenLeg.description); } catch { /* ignore */ }
+        const usedStickyDefault = stickyDefaultLegIdRef.current != null
+          && String(selectedLegId) === stickyDefaultLegIdRef.current;
+        try {
+          localStorage.setItem(LAST_LEG_KEY, chosenLeg.description);
+          if (usedStickyDefault) localStorage.setItem(LAST_LEG_AUTO_KEY, '1');
+          else localStorage.removeItem(LAST_LEG_AUTO_KEY);
+        } catch { /* ignore */ }
       }
       setActiveRide(ride);
       setEndSoc(computeEstimatedEndSoc(ride.start_soc_pct ?? startSoc, ride.trip_miles, configRef.current));
@@ -566,7 +590,7 @@ export function RideCard() {
     <div className="mx-auto w-full max-w-5xl">
       <button
         type="button"
-        onClick={() => { setSelectedLegId(getDefaultLegId(legs)); setUiState('selecting'); setError(''); }}
+        onClick={() => { applyDefaultLeg(); setUiState('selecting'); setError(''); }}
         className="flex min-h-[80px] w-full items-center justify-center rounded-[2rem] bg-green-700 px-6 py-5 text-xl font-bold text-white transition-colors hover:bg-green-600"
       >
         New Ride
