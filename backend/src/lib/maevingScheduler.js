@@ -7,6 +7,10 @@ import { recordSessionComplete, getConfig, computeChargeCurve } from './maevingC
 export const MAEVING_CHARGE_RATE_KW = 1.2;
 const MAEVING_BATTERY_KWH = 2.88;
 
+// Auto-probe targets: at or below the low threshold, top up to it; otherwise charge high.
+const AUTO_LOW_SOC_PCT = 35;
+const AUTO_HIGH_SOC_PCT = 95;
+
 const completionCounters = {}; // { [sessionId]: number }
 
 // Tracks whether the 2 AM auto-probe has already fired today for each device.
@@ -321,15 +325,25 @@ async function runScheduledSessions() {
     const isCharging = apower !== null && apower > PROBE_THRESHOLD_WATTS;
 
     if (isCharging) {
-      // Charger is connected and drawing power — create a session
-      const lastSession = db.prepare(
-        `SELECT actual_soc_pct, soc_target_pct
-         FROM maeving_sessions
-         WHERE device_id = ? AND status IN ('complete','charger_complete')
-         ORDER BY ended_at DESC LIMIT 1`
-      ).get(device.id);
-      const socStart = lastSession?.actual_soc_pct ?? lastSession?.soc_target_pct ?? 0;
-      const socTarget = device.default_soc_target;
+      // Charger is connected and drawing power — create a session.
+      // Start from the last known SOC across all activity (ride end confirmation,
+      // session end, or calibration all write prev_max_soc_pct), not this device's
+      // last session, which can be days stale.
+      const lastKnownSoc = db.prepare(
+        'SELECT prev_max_soc_pct FROM maeving_config WHERE id = 1'
+      ).get()?.prev_max_soc_pct;
+      let socStart = lastKnownSoc;
+      if (socStart == null) {
+        const lastSession = db.prepare(
+          `SELECT actual_soc_pct, soc_target_pct
+           FROM maeving_sessions
+           WHERE device_id = ? AND status IN ('complete','charger_complete')
+           ORDER BY ended_at DESC LIMIT 1`
+        ).get(device.id);
+        socStart = lastSession?.actual_soc_pct ?? lastSession?.soc_target_pct ?? 0;
+      }
+      // At or below 35% top up to 35%; above that, charge to 95%.
+      const socTarget = socStart <= AUTO_LOW_SOC_PCT ? AUTO_LOW_SOC_PCT : AUTO_HIGH_SOC_PCT;
       const probeNow = new Date().toISOString();
 
       // Write baseline reading using the same status read used for the apower check
