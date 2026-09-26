@@ -8,6 +8,21 @@ Personal home-server monorepo with a Fastify backend and React frontend for arch
 2. Start the backend with `npm run dev:backend`.
 3. Start the frontend with `npm run dev:frontend`.
 
+## Deployment
+
+Production runs on the Synology NASes (iolo, noah) as a plain root-owned
+`node src/server.js` process, not under pm2. To deploy:
+
+1. Commit locally and push `main` to GitHub.
+2. On each host, as root, run `/volume1/homes/philander/bin/update-memoryarchiver.sh`.
+
+The script lives on the hosts, not in this repo. It hard-resets the checkout to
+`origin/main`, reinstalls backend and frontend dependencies, rebuilds the
+frontend, stops the running server (pidfile `/var/run/memoryarchiver.pid`, or
+any `node … server.js` stray), and starts a new one from `backend/`, logging to
+`/var/services/homes/philander/memoryarchiver-server.log`. Host-specific
+settings live in `backend/.env` on each host.
+
 ## Encoding
 
 Jobs encode locally with libx265 (`FFMPEG_*` / `NICE_LEVEL` in `.env`).
