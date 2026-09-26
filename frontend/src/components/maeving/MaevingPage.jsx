@@ -26,6 +26,13 @@ import RideTelemetryDetail from './RideTelemetryDetail.jsx';
 const FIXED_RATE_CENTS = 7.8;
 const TOTAL_WH = 2880;
 const MIN_CALIBRATION_SOC_DELTA_PCT = 15; // mirrors backend maevingCalibration.js
+const MAX_CALIBRATION_DEVIATION = 0.25; // mirrors backend maevingCalibration.js
+
+function calExcludedTitle(entry) {
+  return entry.excluded_reason === 'outlier'
+    ? `More than ${MAX_CALIBRATION_DEVIATION * 100}% from the pack estimate — logged but doesn't affect it`
+    : `Charges under ${MIN_CALIBRATION_SOC_DELTA_PCT}% SOC are logged but don't affect the estimate`;
+}
 
 // ── Formatting helpers ──────────────────────────────────────────────────────
 
@@ -1378,7 +1385,7 @@ export default function MaevingPage() {
                                   <td className="py-2 pr-4">{Math.round(entry.observed_wh).toLocaleString()} Wh</td>
                                   <td className="py-2 pr-4">{Math.round(entry.new_capacity).toLocaleString()} Wh</td>
                                   {entry.excluded ? (
-                                    <td className="py-2 pr-4 text-slate-500" title={`Charges under ${MIN_CALIBRATION_SOC_DELTA_PCT}% SOC are logged but don't affect the estimate`}>not counted</td>
+                                    <td className="py-2 pr-4 text-slate-500" title={calExcludedTitle(entry)}>not counted</td>
                                   ) : (
                                     <td className={`py-2 pr-4 ${change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                                       {change >= 0 ? '+' : ''}{Math.round(change)} Wh

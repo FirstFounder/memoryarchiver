@@ -25,6 +25,13 @@ import { isMobile } from '../../lib/isMobile.js';
 
 const TOTAL_WH = 2880; // fallback when config not yet loaded
 const MIN_CALIBRATION_SOC_DELTA_PCT = 15; // mirrors backend maevingCalibration.js
+const MAX_CALIBRATION_DEVIATION = 0.25; // mirrors backend maevingCalibration.js
+
+function calExcludedTitle(entry) {
+  return entry.excluded_reason === 'outlier'
+    ? `More than ${MAX_CALIBRATION_DEVIATION * 100}% from the pack estimate — logged but doesn't affect it`
+    : `Charges under ${MIN_CALIBRATION_SOC_DELTA_PCT}% SOC are logged but don't affect the estimate`;
+}
 
 function formatEta(session, summary, liveApower, estimatedSoc, effectiveCapacity) {
   const socTarget = session.soc_target_pct ?? 100;
@@ -1605,7 +1612,7 @@ export function MaevingPanel() {
                           {entry.excluded ? (
                             <td
                               className="py-2 pr-4 text-slate-500"
-                              title={`Charges under ${MIN_CALIBRATION_SOC_DELTA_PCT}% SOC are logged but don't affect the estimate`}
+                              title={calExcludedTitle(entry)}
                             >
                               not counted
                             </td>

@@ -7,6 +7,11 @@ const CHARGE_COMPLETE_CONSECUTIVE = 3;
 // Charges adding less SOC than this are logged in the history but don't move the
 // capacity estimate: whole-percent SOC readings make short deltas too noisy.
 export const MIN_CALIBRATION_SOC_DELTA_PCT = 15;
+// Implied capacities further than this from the current estimate are logged but not
+// counted — they almost always mean a wrong start or end SOC, not a changed pack.
+// Only applied once the estimate has settled; early readings legitimately jump.
+export const MAX_CALIBRATION_DEVIATION = 0.25;
+const OUTLIER_GUARD_MIN_OBSERVATIONS = 5;
 
 export function getConfig() {
   return db.prepare('SELECT * FROM maeving_config WHERE id = 1').get();
@@ -29,11 +34,21 @@ export function recordCalibrationEntry(sessionId, actualSocPct) {
   if (socDelta <= 0) throw new Error('SOC delta must be positive');
 
   const observedEffectiveWh = session.wh_delivered / (socDelta / 100);
-  const excluded = socDelta < MIN_CALIBRATION_SOC_DELTA_PCT;
 
   const config = getConfig();
-  const alpha = config.observation_count < 5 ? 0.3 : 0.15;
   const prevCapacity = config.effective_capacity_wh;
+  let excludedReason = null;
+  if (socDelta < MIN_CALIBRATION_SOC_DELTA_PCT) {
+    excludedReason = 'short_charge';
+  } else if (
+    config.observation_count >= OUTLIER_GUARD_MIN_OBSERVATIONS &&
+    Math.abs(observedEffectiveWh - prevCapacity) / prevCapacity > MAX_CALIBRATION_DEVIATION
+  ) {
+    excludedReason = 'outlier';
+  }
+  const excluded = excludedReason !== null;
+
+  const alpha = config.observation_count < 5 ? 0.3 : 0.15;
   const newCapacity = excluded
     ? prevCapacity
     : Math.round(alpha * observedEffectiveWh + (1 - alpha) * prevCapacity);
@@ -45,7 +60,7 @@ export function recordCalibrationEntry(sessionId, actualSocPct) {
     soc_delta: socDelta,
     prev_capacity: prevCapacity,
     new_capacity: newCapacity,
-    ...(excluded && { excluded: true }),
+    ...(excluded && { excluded: true, excluded_reason: excludedReason }),
     recorded_at: new Date().toISOString(),
   });
 
@@ -72,6 +87,7 @@ export function recordCalibrationEntry(sessionId, actualSocPct) {
     observedWh: observedEffectiveWh,
     delta: newCapacity - prevCapacity,
     excluded,
+    excludedReason,
   };
 }
 
