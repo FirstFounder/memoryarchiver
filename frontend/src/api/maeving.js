@@ -148,8 +148,8 @@ export async function skipCalibration(id) {
   });
 }
 
-export async function deleteCalibrationEntry(index) {
-  const res = await fetch(`/api/maeving/calibration/${index}`, { method: 'DELETE' });
+export async function deleteCalibrationEntry(sessionId) {
+  const res = await fetch(`/api/maeving/calibration/${sessionId}`, { method: 'DELETE' });
   if (!res.ok) throw new Error('Delete failed');
   return res.json();
 }

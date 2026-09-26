@@ -4,6 +4,9 @@ const MAEVING_TOTAL_WH_DEFAULT = 2880;
 const TAPER_THRESHOLD_PCT = 0.80;
 const CHARGE_COMPLETE_WATTS = 20;
 const CHARGE_COMPLETE_CONSECUTIVE = 3;
+// Charges adding less SOC than this are logged in the history but don't move the
+// capacity estimate: whole-percent SOC readings make short deltas too noisy.
+export const MIN_CALIBRATION_SOC_DELTA_PCT = 15;
 
 export function getConfig() {
   return db.prepare('SELECT * FROM maeving_config WHERE id = 1').get();
@@ -26,11 +29,14 @@ export function recordCalibrationEntry(sessionId, actualSocPct) {
   if (socDelta <= 0) throw new Error('SOC delta must be positive');
 
   const observedEffectiveWh = session.wh_delivered / (socDelta / 100);
+  const excluded = socDelta < MIN_CALIBRATION_SOC_DELTA_PCT;
 
   const config = getConfig();
   const alpha = config.observation_count < 5 ? 0.3 : 0.15;
   const prevCapacity = config.effective_capacity_wh;
-  const newCapacity = Math.round(alpha * observedEffectiveWh + (1 - alpha) * prevCapacity);
+  const newCapacity = excluded
+    ? prevCapacity
+    : Math.round(alpha * observedEffectiveWh + (1 - alpha) * prevCapacity);
 
   const history = JSON.parse(config.capacity_history_json || '[]');
   history.push({
@@ -39,6 +45,7 @@ export function recordCalibrationEntry(sessionId, actualSocPct) {
     soc_delta: socDelta,
     prev_capacity: prevCapacity,
     new_capacity: newCapacity,
+    ...(excluded && { excluded: true }),
     recorded_at: new Date().toISOString(),
   });
 
@@ -47,10 +54,10 @@ export function recordCalibrationEntry(sessionId, actualSocPct) {
     SET effective_capacity_wh  = ?,
         prev_max_soc_pct       = ?,
         prev_session_id        = ?,
-        observation_count      = observation_count + 1,
+        observation_count      = observation_count + ?,
         capacity_history_json  = ?
     WHERE id = 1
-  `).run(newCapacity, actualSocPct, sessionId, JSON.stringify(history));
+  `).run(newCapacity, actualSocPct, sessionId, excluded ? 0 : 1, JSON.stringify(history));
 
   db.prepare(`
     UPDATE maeving_sessions
@@ -64,6 +71,7 @@ export function recordCalibrationEntry(sessionId, actualSocPct) {
     newCapacity,
     observedWh: observedEffectiveWh,
     delta: newCapacity - prevCapacity,
+    excluded,
   };
 }
 

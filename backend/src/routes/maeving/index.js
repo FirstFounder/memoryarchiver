@@ -1325,35 +1325,36 @@ export default async function maevingRoutes(fastify) {
     });
   });
 
-  // DELETE /api/maeving/calibration/:index
-  fastify.delete('/api/maeving/calibration/:index', async (req, reply) => {
-    const idx = parseInt(req.params.index, 10);
-    if (!Number.isInteger(idx) || idx < 0) return reply.code(400).send({ error: 'invalid index' });
+  // DELETE /api/maeving/calibration/:sessionId
+  // Entries are addressed by session id, not array position, so the client can't
+  // hit the wrong row if observation_count and the history length ever disagree.
+  fastify.delete('/api/maeving/calibration/:sessionId', async (req, reply) => {
+    const sessionId = parseInt(req.params.sessionId, 10);
+    if (!Number.isInteger(sessionId)) return reply.code(400).send({ error: 'invalid session id' });
 
     const cfg = db.prepare(
       'SELECT capacity_history_json FROM maeving_config WHERE id = 1',
     ).get();
     const entries = JSON.parse(cfg?.capacity_history_json || '[]');
 
-    if (idx >= entries.length) return reply.code(400).send({ error: 'index out of bounds' });
+    const remaining = entries.filter(e => e.session_id !== sessionId);
+    if (remaining.length === entries.length) return reply.code(404).send({ error: 'entry not found' });
 
-    const removed = entries[idx];
-    const remaining = entries.filter((_, i) => i !== idx);
-
-    let newCapacity, newCount, newJson;
-    if (remaining.length === 0) {
+    // Excluded (short-charge) entries stay in the log but never feed the estimate.
+    const counted = remaining.filter(e => !e.excluded);
+    let newCapacity, newCount;
+    if (counted.length === 0) {
       newCapacity = 5760;
       newCount = 0;
-      newJson = '[]';
     } else {
-      let ema = remaining[0].observed_wh;
-      for (let i = 1; i < remaining.length; i++) {
-        ema = 0.15 * remaining[i].observed_wh + 0.85 * ema;
+      let ema = counted[0].observed_wh;
+      for (let i = 1; i < counted.length; i++) {
+        ema = 0.15 * counted[i].observed_wh + 0.85 * ema;
       }
       newCapacity = Math.round(ema);
-      newCount = remaining.length;
-      newJson = JSON.stringify(remaining);
+      newCount = counted.length;
     }
+    const newJson = JSON.stringify(remaining);
 
     db.prepare(`
       UPDATE maeving_config

@@ -24,6 +24,7 @@ import RideTelemetryDetail from './RideTelemetryDetail.jsx';
 import { isMobile } from '../../lib/isMobile.js';
 
 const TOTAL_WH = 2880; // fallback when config not yet loaded
+const MIN_CALIBRATION_SOC_DELTA_PCT = 15; // mirrors backend maevingCalibration.js
 
 function formatEta(session, summary, liveApower, estimatedSoc, effectiveCapacity) {
   const socTarget = session.soc_target_pct ?? 100;
@@ -475,11 +476,9 @@ export function MaevingPanel() {
 
   // ── Calibration history delete ───────────────────────────────────────────────
 
-  async function handleDeleteCalEntry(displayIdx) {
-    const offset = (config.observation_count ?? 0) - (config.capacityHistory?.length ?? 0);
-    const actualIdx = offset + displayIdx;
+  async function handleDeleteCalEntry(sessionId) {
     try {
-      await deleteCalibrationEntry(actualIdx);
+      await deleteCalibrationEntry(sessionId);
       setConfirmDeleteCalIdx(null);
       await refresh();
     } catch (err) {
@@ -1589,7 +1588,9 @@ export function MaevingPanel() {
                       return (
                         <tr
                           key={i}
-                          className="border-t border-[color:var(--color-border)] text-slate-300"
+                          className={`border-t border-[color:var(--color-border)] ${
+                            entry.excluded ? 'text-slate-500' : 'text-slate-300'
+                          }`}
                         >
                           <td className="py-2 pr-4 text-slate-500">
                             {formatDate(entry.recorded_at)}
@@ -1601,14 +1602,23 @@ export function MaevingPanel() {
                           <td className="py-2 pr-4">
                             {Math.round(entry.new_capacity).toLocaleString()} Wh
                           </td>
-                          <td
-                            className={`py-2 pr-4 ${
-                              change >= 0 ? 'text-emerald-400' : 'text-red-400'
-                            }`}
-                          >
-                            {change >= 0 ? '+' : ''}
-                            {Math.round(change)} Wh
-                          </td>
+                          {entry.excluded ? (
+                            <td
+                              className="py-2 pr-4 text-slate-500"
+                              title={`Charges under ${MIN_CALIBRATION_SOC_DELTA_PCT}% SOC are logged but don't affect the estimate`}
+                            >
+                              not counted
+                            </td>
+                          ) : (
+                            <td
+                              className={`py-2 pr-4 ${
+                                change >= 0 ? 'text-emerald-400' : 'text-red-400'
+                              }`}
+                            >
+                              {change >= 0 ? '+' : ''}
+                              {Math.round(change)} Wh
+                            </td>
+                          )}
                           <td className="py-2 text-right">
                             {confirmDeleteCalIdx === i ? (
                               <span className="flex items-center justify-end gap-1 text-xs">
@@ -1617,7 +1627,7 @@ export function MaevingPanel() {
                                   className="text-gray-400 hover:text-white px-2 py-0.5 rounded"
                                 >✕</button>
                                 <button
-                                  onClick={() => handleDeleteCalEntry(i)}
+                                  onClick={() => handleDeleteCalEntry(entry.session_id)}
                                   className="bg-red-700 hover:bg-red-600 text-white px-2 py-0.5 rounded"
                                 >Delete</button>
                               </span>
