@@ -42,9 +42,11 @@ function getTimeBasedLegName() {
   const day = now.getDate();
 
   if (totalMin >= 360 && totalMin < 600) {
-    // 6:00 AM – 10:00 AM: summer (Jun 1 – Aug 15) vs. rest of year
+    // 6:00 AM – 10:00 AM: summer (Jun 1 – Aug 15) is always Riverwoods; rest of year
+    // 6:00–7:40 AM Riverwoods, 7:41–10:00 AM Townline
     const isSummer = (month === 5) || (month === 6) || (month === 7 && day <= 15);
-    return isSummer ? 'Work Riverwoods' : 'Work Townline';
+    if (isSummer || totalMin <= 460) return 'Work Riverwoods';
+    return 'Work Townline';
   }
   if (totalMin >= 690 && totalMin < 840) {
     // 11:30 AM – 2:00 PM
