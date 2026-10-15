@@ -309,7 +309,38 @@ export default function App() {
           <a href="/" className="hover:text-indigo-300 transition-colors">Memory Archiver</a>
         </h1>
         <span className="text-slate-600 text-xs ml-auto flex items-center gap-2">
-          H.265 · {'{Fam|Vault}'} · {isHub ? 'Synology DS423+' : 'Synology DS220+'}
+          <button
+            type="button"
+            onClick={refreshComed}
+            disabled={comedLoading}
+            title="Refresh ComEd price"
+            aria-label="Refresh ComEd price"
+            className={`flex items-center gap-2 cursor-pointer${comedLoading ? ' opacity-50' : ''}`}
+          >
+            <span className={`${priceTrendProps.className} text-base`} style={{ fontSize: '1.2em' }}>
+              {priceTrendProps.arrow}
+            </span>
+            <span
+              className={`${currentPriceClass} text-base`}
+              style={{
+                fontSize: '1.2em',
+                ...(currentPriceFlashing ? { animation: 'blink 1s step-start infinite' } : {}),
+              }}
+            >
+              {currentPrice != null ? `${currentPrice.toFixed(1)}¢` : '—'}
+            </span>
+            <span className={`${avgTrendProps.className} text-base`} style={{ fontSize: '1.2em' }}>
+              {avgTrendProps.arrow}
+            </span>
+            <span
+              className={`${hourlyAvgClass} text-base`}
+              style={hourlyAvgFlashing ? { animation: 'blink 1s step-start infinite' } : undefined}
+            >
+              {hourlyAvg != null ? `${hourlyAvg.toFixed(1)}¢` : '—'}
+            </span>
+          </button>
+          <span className="text-slate-600">·</span>
+          {isHub ? 'Synology DS423+' : 'Synology DS220+'}
           {isMaeving && monthlyRates && (
             <MonthlyRatePill rates={monthlyRates} onUpdated={setMonthlyRates} />
           )}
@@ -364,34 +395,6 @@ export default function App() {
               <span className="text-xs text-slate-500 leading-tight">Rebel 250</span>
             </span>
           )}
-          <span className="text-slate-600">·</span>
-          <span className={`${priceTrendProps.className} text-base`} style={{ fontSize: '1.2em' }}>
-            {priceTrendProps.arrow}
-          </span>
-          <span
-            className={`${currentPriceClass} text-base`}
-            style={{
-              fontSize: '1.2em',
-              ...(currentPriceFlashing ? { animation: 'blink 1s step-start infinite' } : {}),
-            }}
-          >
-            {currentPrice != null ? `${currentPrice.toFixed(1)}¢` : '—'}
-          </span>
-          <span className={`${avgTrendProps.className} text-base`} style={{ fontSize: '1.2em' }}>
-            {avgTrendProps.arrow}
-          </span>
-          <span
-            className={`${hourlyAvgClass} text-base`}
-            style={hourlyAvgFlashing ? { animation: 'blink 1s step-start infinite' } : undefined}
-          >
-            {hourlyAvg != null ? `${hourlyAvg.toFixed(1)}¢` : '—'}
-          </span>
-          <button
-            onClick={refreshComed}
-            className={`text-slate-500 hover:text-slate-300 transition-colors leading-none${comedLoading ? ' opacity-50' : ''}`}
-            disabled={comedLoading}
-            aria-label="Refresh ComEd price"
-          >↻</button>
           {isTesla && (
             <button
               onClick={() => setSettingsOpen(true)}
